@@ -1,8 +1,5 @@
 
 
-#include "attestation_handshake.hpp"
-#include "attestationdeviceiface.hpp"
-#include "attestationresponderiface.hpp"
 #include "certificate_exchange.hpp"
 #include "command_line_parser.hpp"
 #include "dbusproperty_watcher.hpp"
@@ -12,6 +9,9 @@
 #include "logger.hpp"
 #include "root_certs.hpp"
 #include "sdbus_calls.hpp"
+#include "spdm_handshake.hpp"
+#include "spdmdeviceiface.hpp"
+#include "spdmresponderiface.hpp"
 
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -103,17 +103,17 @@ ssl::context loadClientContext(const std::string& clientcert,
                                             boost::asio::ssl::context::pem);
     return ssl_client_context;
 }
-void intialiseAttestationHandler(
-    AttestationHandler& attestationHandler, AttestationDeviceIface& deviceIface,
-    AttestationResponderIface& attestationResponder)
+void intialiseSpdmHandler(SpdmHandler& spdmHandler,
+                          SpdmDeviceIface& deviceIface,
+                          SpdmResponderIface& spdmResponder)
 {
-    attestationHandler.setAttestationFinishHandler(
+    spdmHandler.setSpdmFinishHandler(
         [&](bool status, bool resp) -> net::awaitable<void> {
-            LOG_INFO("Attestation Handshake finished with status: {} resp {}",
-                     status, resp);
+            LOG_INFO("SPDM Handshake finished with status: {} resp {}", status,
+                     resp);
             if (resp)
             {
-                attestationResponder.emitStatus(status);
+                spdmResponder.emitStatus(status);
             }
             else
             {
@@ -126,24 +126,20 @@ void intialiseAttestationHandler(
 auto createNeighbourHandler(
     net::io_context& io_context,
     std::shared_ptr<sdbusplus::asio::connection> conn,
-    sdbusplus::asio::object_server& dbusServer,
-    AttestationHandler& attestationHandler,
-    AttestationResponderIface& attestationResponder,
-    std::shared_ptr<AttestationDeviceIface>& attestationDevice,
-    const std::string& remotePort)
+    sdbusplus::asio::object_server& dbusServer, SpdmHandler& spdmHandler,
+    SpdmResponderIface& spdmResponder,
+    std::shared_ptr<SpdmDeviceIface>& spdmDevice, const std::string& remotePort)
 {
-    return [&io_context, conn, &dbusServer, &attestationHandler,
-            &attestationResponder, &attestationDevice,
+    return [&io_context, conn, &dbusServer, &spdmHandler, &spdmResponder,
+            &spdmDevice,
             remotePort](const std::string& address,
                         const std::string& name) -> net::awaitable<void> {
         LOG_INFO("Neighbour LLDP Address : {} Name : {} ", address, name);
-        AttestationDeviceIface::ResponderInfo responderInfo{name, address,
-                                                            remotePort};
-        attestationDevice.reset();
-        attestationDevice = std::make_shared<AttestationDeviceIface>(
-            conn, dbusServer, responderInfo, attestationHandler);
-        intialiseAttestationHandler(attestationHandler, *attestationDevice,
-                                    attestationResponder);
+        SpdmDeviceIface::ResponderInfo responderInfo{name, address, remotePort};
+        spdmDevice.reset();
+        spdmDevice = std::make_shared<SpdmDeviceIface>(
+            conn, dbusServer, responderInfo, spdmHandler);
+        intialiseSpdmHandler(spdmHandler, *spdmDevice, spdmResponder);
         co_return;
     };
 }
@@ -231,7 +227,7 @@ int main(int argc, const char* argv[])
             return 1;
         }
         CertificateExchanger::createCertificates();
-        AttestationHandler attestationHandler(
+        SpdmHandler spdmHandler(
             MeasurementTaker(loadPrivateKey(signprivkey)),
             MeasurementVerifier(getPublicKeyFromCert(verifyCert)), eventQueue,
             io_context);
@@ -239,17 +235,16 @@ int main(int argc, const char* argv[])
         {
             for (const auto& resource : resources)
             {
-                attestationHandler.addToMeasure(resource);
+                spdmHandler.addToMeasure(resource);
             }
         }
         sdbusplus::asio::object_server dbusServer(conn);
-        std::shared_ptr<AttestationDeviceIface> attestationDevice;
-        AttestationResponderIface attestationResponder(conn, dbusServer,
-                                                       "responder1");
+        std::shared_ptr<SpdmDeviceIface> spdmDevice;
+        SpdmResponderIface spdmResponder(conn, dbusServer, "responder1");
 
-        auto neighbourHandler = createNeighbourHandler(
-            io_context, conn, dbusServer, attestationHandler,
-            attestationResponder, attestationDevice, port);
+        auto neighbourHandler =
+            createNeighbourHandler(io_context, conn, dbusServer, spdmHandler,
+                                   spdmResponder, spdmDevice, port);
 
         DbusSignalWatcher<sdbusplus::message_t>::watch(
             io_context, conn, makeNeighbourDiscoveryHandler(neighbourHandler),
@@ -259,7 +254,7 @@ int main(int argc, const char* argv[])
         net::co_spawn(io_context,
                       makeNeighbourUpdateHandler(conn, iface, neighbourHandler),
                       net::detached);
-        conn->request_name(AttestationDeviceIface::busName);
+        conn->request_name(SpdmDeviceIface::busName);
         io_context.run();
     }
     catch (const std::exception& e)

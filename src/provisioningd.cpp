@@ -13,18 +13,16 @@
 
 #include <fstream>
 #include <iostream>
-static constexpr auto ATTESTATION_SVC = "xyz.openbmc_project.attestation";
-static constexpr auto ATTESTATION_DEVICE_PATH =
-    "/xyz/openbmc_project/attestation_requester/devices/tcp/{}";
-static constexpr auto ATTESTATION_RES_PATH =
-    "/xyz/openbmc_project/attestation_responder/tcp/{}";
-static constexpr auto ATTESTATION_DEVICE_INTF =
-    "xyz.openbmc_project.AttestationDevice";
-static constexpr auto ATTESTATION_RES_INTF =
-    "xyz.openbmc_project.AttestationResponder";
-static constexpr auto ATTESTATION_PROP = "Status";
-static constexpr auto ATTESTATION_REQ_SIGNAL = "Attested";
-static constexpr auto ATTESTATION_RES_SIGNAL = "Attested";
+static constexpr auto SPDM_SVC = "xyz.openbmc_project.spdm";
+static constexpr auto SPDM_DEVICE_PATH =
+    "/xyz/openbmc_project/spdm_requester/devices/tcp/{}";
+static constexpr auto SPDM_RES_PATH =
+    "/xyz/openbmc_project/spdm_responder/tcp/{}";
+static constexpr auto SPDM_DEVICE_INTF = "xyz.openbmc_project.SpdmDevice";
+static constexpr auto SPDM_RES_INTF = "xyz.openbmc_project.SpdmResponder";
+static constexpr auto SPDM_PROP = "Status";
+static constexpr auto SPDM_REQ_SIGNAL = "Attested";
+static constexpr auto SPDM_RES_SIGNAL = "Attested";
 static constexpr auto LLDP_SVC = "xyz.openbmc_project.LLDP";
 static constexpr auto LLDP_PATH = "/xyz/openbmc_project/network/lldp/{}";
 static constexpr auto LLDP_INTF = "xyz.openbmc_project.Network.LLDP.TLVs";
@@ -241,11 +239,10 @@ net::awaitable<void> startSpdm(
         // This method would start the SPDM provisioning process.
         // Implementation would depend on the specific requirements.
         LOG_INFO("Starting SPDM provisioning");
-        auto device = std::format(ATTESTATION_DEVICE_PATH, deviceName);
+        auto device = std::format(SPDM_DEVICE_PATH, deviceName);
         auto [ec, msg] =
             co_await awaitable_dbus_method_call<sdbusplus::message_t>(
-                conn, ATTESTATION_SVC, device, ATTESTATION_DEVICE_INTF,
-                "attest");
+                conn, SPDM_SVC, device, SPDM_DEVICE_INTF, "attest");
         if (ec)
         {
             LOG_ERROR("Failed to start spdm: {}", ec.message());
@@ -309,7 +306,7 @@ int main(int argc, const char* argv[])
         controller.setProvisionHandler([&](const std::string& deviceName) {
             LOG_INFO("Provisioning started");
             auto watcherPtr = std::make_shared<DbusSignalWatcher<bool>>(
-                conn, ATTESTATION_DEVICE_INTF, ATTESTATION_REQ_SIGNAL);
+                conn, SPDM_DEVICE_INTF, SPDM_REQ_SIGNAL);
             net::co_spawn(io_context,
                           std::bind_front(startSpdm, std::ref(*conn),
                                           watcherPtr, std::ref(io_context),
@@ -322,7 +319,7 @@ int main(int argc, const char* argv[])
             io_context, conn,
             std::bind_front(onSpdmStateChange, std::ref(io_context), port,
                             std::ref(controller), std::ref(bmcResponder)),
-            ATTESTATION_RES_INTF, ATTESTATION_RES_SIGNAL);
+            SPDM_RES_INTF, SPDM_RES_SIGNAL);
         DbusPropertyWatcher<std::string>::watch(
             io_context, conn,
             std::bind_front(onNeighbhorFound, std::ref(io_context),

@@ -2,20 +2,19 @@
 #include "sdbus_calls.hpp"
 
 #include <format>
-class AttestationResponderIface
+class SpdmResponderIface
 {
     std::shared_ptr<sdbusplus::asio::connection> conn;
     static constexpr auto objPath =
-        "/xyz/openbmc_project/attestation_responder/tcp/{}";
-    static constexpr auto interface =
-        "xyz.openbmc_project.AttestationResponder";
+        "/xyz/openbmc_project/spdm_responder/tcp/{}";
+    static constexpr auto interface = "xyz.openbmc_project.SpdmResponder";
     constexpr static auto signal = "Attested";
     sdbusplus::asio::object_server& dbusServer;
     bool attested{false};
     const std::string id;
 
   public:
-    explicit AttestationResponderIface(
+    explicit SpdmResponderIface(
         const std::shared_ptr<sdbusplus::asio::connection>& conn,
         sdbusplus::asio::object_server& objectServer, const std::string& id) :
         conn(conn), dbusServer(objectServer), id(id)
@@ -27,16 +26,14 @@ class AttestationResponderIface
         intf->initialize();
     }
 
-    virtual ~AttestationResponderIface() = default;
+    virtual ~SpdmResponderIface() = default;
     // Non-copyable to avoid accidental shared state
-    AttestationResponderIface(const AttestationResponderIface&) = delete;
-    AttestationResponderIface& operator=(const AttestationResponderIface&) =
-        delete;
+    SpdmResponderIface(const SpdmResponderIface&) = delete;
+    SpdmResponderIface& operator=(const SpdmResponderIface&) = delete;
 
     // Movable
-    AttestationResponderIface(AttestationResponderIface&&) noexcept = default;
-    AttestationResponderIface& operator=(AttestationResponderIface&&) noexcept =
-        default;
+    SpdmResponderIface(SpdmResponderIface&&) noexcept = default;
+    SpdmResponderIface& operator=(SpdmResponderIface&&) noexcept = default;
     void emitStatus(bool status)
     {
         LOG_DEBUG("Emitting Responder status {}", status);

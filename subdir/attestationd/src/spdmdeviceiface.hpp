@@ -1,7 +1,7 @@
 #pragma once
-#include "attestation_handshake.hpp"
 #include "sdbus_calls.hpp"
-struct AttestationDeviceIface
+#include "spdm_handshake.hpp"
+struct SpdmDeviceIface
 {
     std::shared_ptr<sdbusplus::asio::connection> conn;
     sdbusplus::asio::object_server& dbusServer;
@@ -13,20 +13,19 @@ struct AttestationDeviceIface
         std::string eport;
     };
     ResponderInfo responderInfo;
-    AttestationHandler& attestationHandler;
+    SpdmHandler& spdmHandler;
     using AFTERATTESTATION_HANDLER = std::function<void(const std::string&)>;
     AFTERATTESTATION_HANDLER onAttestationStart;
-    static constexpr auto busName = "xyz.openbmc_project.attestation";
+    static constexpr auto busName = "xyz.openbmc_project.spdm";
     static constexpr auto objPath =
-        "/xyz/openbmc_project/attestation_requester/devices/tcp/{}";
-    static constexpr auto interface = "xyz.openbmc_project.AttestationDevice";
+        "/xyz/openbmc_project/spdm_requester/devices/tcp/{}";
+    static constexpr auto interface = "xyz.openbmc_project.SpdmDevice";
     static constexpr auto signalName = "Attested";
-    AttestationDeviceIface(
-        const std::shared_ptr<sdbusplus::asio::connection>& conn,
-        sdbusplus::asio::object_server& dbusServer, const ResponderInfo& rInfo,
-        AttestationHandler& handler) :
+    SpdmDeviceIface(const std::shared_ptr<sdbusplus::asio::connection>& conn,
+                    sdbusplus::asio::object_server& dbusServer,
+                    const ResponderInfo& rInfo, SpdmHandler& handler) :
         conn(conn), dbusServer(dbusServer), responderInfo(rInfo),
-        attestationHandler(handler)
+        spdmHandler(handler)
     {
         auto ifacePath = std::format(objPath, responderInfo.id);
         iface = dbusServer.add_interface(ifacePath, interface);
@@ -40,7 +39,7 @@ struct AttestationDeviceIface
         iface->register_signal<bool>(signalName); // signal name
         iface->initialize();
     }
-    ~AttestationDeviceIface()
+    ~SpdmDeviceIface()
     {
         dbusServer.remove_interface(iface);
     }
@@ -50,13 +49,13 @@ struct AttestationDeviceIface
     }
     void attest()
     {
-        attestationHandler.setEndPoint(responderInfo.ep, responderInfo.eport);
-        attestationHandler.startHandshake();
+        spdmHandler.setEndPoint(responderInfo.ep, responderInfo.eport);
+        spdmHandler.startHandshake();
     }
 
     void emitStatus(bool status)
     {
-        LOG_DEBUG("Emitting attestation status {}", status);
+        LOG_DEBUG("Emitting spdm status {}", status);
         std::string path = std::format(objPath, responderInfo.id);
         auto msg = conn->new_signal(path.data(), interface, signalName);
         bool value = status;
