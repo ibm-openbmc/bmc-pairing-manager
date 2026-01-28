@@ -4,12 +4,18 @@
 using namespace NSNAME;
 constexpr auto CLIENT_PKEY_NAME = "/etc/ssl/private/client.mtls.key";
 constexpr auto ENTITY_CLIENT_CERT_NAME = "/etc/ssl/certs/https/client.mtls.pem";
+constexpr auto ENTITY_CLIENT_COMBINED_NAME =
+    "/etc/ssl/certs/https/client.mtls.combined.pem";
 constexpr auto SERVER_PKEY_NAME = "/etc/ssl/private/server.mtls.key";
 constexpr auto ENTITY_SERVER_CERT_NAME = "/etc/ssl/certs/https/server.mtls.pem";
+constexpr auto ENTITY_SERVER_COMBINED_NAME =
+    "/etc/ssl/certs/https/server.mtls.combined.pem";
 constexpr auto CA_CERT_NAME = "/etc/ssl/certs/bmc.ca.pem";
 constexpr auto CA_KEY_NAME = "/etc/ssl/private/bmc.ca.key";
 constexpr auto SIGNING_CERT_NAME = "/etc/ssl/certs/https/signing.pem";
 constexpr auto SIGNING_KEY_NAME = "/etc/ssl/private/signing.key";
+constexpr auto SIGNING_COMBINED_NAME =
+    "/etc/ssl/certs/https/signing.combined.pem";
 
 bool processInterMediateCA(const openssl_ptr<EVP_PKEY, EVP_PKEY_free>& pkey,
                            const openssl_ptr<X509, X509_free>& ca)
@@ -26,11 +32,14 @@ bool processInterMediateCA(const openssl_ptr<EVP_PKEY, EVP_PKEY_free>& pkey,
     }
     std::array<ENTITY_DATA, 3> entity_data = {
         ENTITY_DATA{"clientAuth", std::format(CLIENT_PKEY_NAME),
-                    std::format(ENTITY_CLIENT_CERT_NAME)},
+                    std::format(ENTITY_CLIENT_CERT_NAME),
+                    std::format(ENTITY_CLIENT_COMBINED_NAME)},
         ENTITY_DATA{"serverAuth", std::format(SERVER_PKEY_NAME),
-                    std::format(ENTITY_SERVER_CERT_NAME)},
+                    std::format(ENTITY_SERVER_CERT_NAME),
+                    std::format(ENTITY_SERVER_COMBINED_NAME)},
         ENTITY_DATA{"signing", std::format(SIGNING_KEY_NAME),
-                    std::format(SIGNING_CERT_NAME)}};
+                    std::format(SIGNING_CERT_NAME),
+                    std::format(SIGNING_COMBINED_NAME)}};
     auto certsdata = createAndSaveEntityCertificate<3>(pkey, ca, "BMC Entity",
                                                        entity_data, 1);
     if (!certsdata)

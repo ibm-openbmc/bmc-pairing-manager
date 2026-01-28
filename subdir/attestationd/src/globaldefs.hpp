@@ -4,7 +4,7 @@
 #include <unistd.h>
 
 #include <filesystem>
-constexpr auto CA_PATH_X = "{}etc/ssl/certs/ca.pem";
+constexpr auto CA_PATH_X = "{}etc/ssl/certs/authority/ca.pem";
 constexpr auto SELF_CA_PATH_X = "{}etc/ssl/certs/self_ca.pem";
 constexpr auto SERVER_PKEY_PATH_X = "{}etc/ssl/private/server_pkey.pem";
 constexpr auto ENTITY_SERVER_CERT_PATH_X =
@@ -12,6 +12,10 @@ constexpr auto ENTITY_SERVER_CERT_PATH_X =
 constexpr auto CLIENT_PKEY_PATH_X = "{}etc/ssl/private/client_pkey.pem";
 constexpr auto ENTITY_CLIENT_CERT_PATH_X =
     "{}etc/ssl/certs/https/client_cert.pem";
+constexpr auto ENTITY_SERVER_COMBINED_PATH_X =
+    "{}etc/ssl/certs/https/server.pem";
+constexpr auto ENTITY_CLIENT_COMBINED_PATH_X =
+    "{}etc/ssl/certs/https/client.pem";
 extern std::string prefix;
 inline std::string getPrefix()
 {
@@ -40,6 +44,14 @@ inline std::string CLIENT_PKEY_PATH()
 inline std::string ENTITY_CLIENT_CERT_PATH()
 {
     return std::format(ENTITY_CLIENT_CERT_PATH_X, getPrefix());
+}
+inline std::string ENTITY_SERVER_COMBINED_PATH()
+{
+    return std::format(ENTITY_SERVER_COMBINED_PATH_X, getPrefix());
+}
+inline std::string ENTITY_CLIENT_COMBINED_PATH()
+{
+    return std::format(ENTITY_CLIENT_COMBINED_PATH_X, getPrefix());
 }
 
 inline void createCertDirectories()

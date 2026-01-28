@@ -7,7 +7,7 @@ using namespace reactor;
 namespace fs = std::filesystem;
 inline std::string trustStorePath()
 {
-    return std::format("{}etc/ssl/certs/ca.pem", cert_root);
+    return std::format("{}etc/ssl/certs/authority/ca.pem", cert_root);
 }
 inline std::string ENTITY_CLIENT_CERT_PATH()
 {

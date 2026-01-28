@@ -1,5 +1,5 @@
 project('provisioningd', 'cpp',default_options: ['cpp_std=c++23','buildtype=debugoptimized',])
-boost_dep = dependency('boost', modules: ['url'], required: true)
+boost_dep = dependency('boost', version: '>= 1.86', required: true)
 openssl_dep = dependency('openssl', version: '>= 3.0', required: true)
 sdeventplus_dep = dependency('sdeventplus')
 sdbusplus_dep =dependency('sdbusplus')

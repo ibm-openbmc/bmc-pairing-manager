@@ -18,11 +18,16 @@
 #include <openssl/x509v3.h>
 
 #include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
 namespace NSNAME
 {
+// Forward declarations for PEM<->DER private-key string/buffer helpers
+bool pemKeyStringToDer(const std::string& pem, std::vector<uint8_t>& der);
+bool derKeyToPemString(const std::vector<uint8_t>& der, std::string& pem);
+
 // Helper for unique_ptr with OpenSSL types
 template <typename T, void (*Deleter)(T*)>
 using openssl_ptr = std::unique_ptr<T, decltype(Deleter)>;
@@ -302,6 +307,238 @@ bool derKeyToPem(const std::string& derPath, const std::string& pemPath)
     return ret == 1;
 }
 
+// Convert PEM certificate (in-memory string) to DER (in-memory buffer)
+inline bool pemStringToDer(const std::string& pem, std::vector<uint8_t>& der)
+{
+    if (pem.empty())
+        return false;
+
+    BIOPtr inBio = makeBIOPtr(BIO_new_mem_buf(pem.data(), (int)pem.size()));
+    if (!inBio)
+        return false;
+
+    X509* raw = PEM_read_bio_X509(inBio.get(), nullptr, nullptr, nullptr);
+    if (!raw)
+        return false;
+    X509Ptr cert = makeX509Ptr(raw);
+
+    BIOPtr outBio = makeBIOPtr(BIO_new(BIO_s_mem()));
+    if (!outBio)
+        return false;
+
+    if (!i2d_X509_bio(outBio.get(), cert.get()))
+        return false;
+
+    BUF_MEM* bptr = nullptr;
+    BIO_get_mem_ptr(outBio.get(), &bptr);
+    if (!bptr || bptr->length == 0)
+        return false;
+
+    der.assign(reinterpret_cast<uint8_t*>(bptr->data),
+               reinterpret_cast<uint8_t*>(bptr->data) + bptr->length);
+    return true;
+}
+
+// Convert DER (in-memory buffer) to PEM (in-memory string)
+inline bool derToPemString(const std::vector<uint8_t>& der, std::string& pem)
+{
+    if (der.empty())
+        return false;
+
+    BIOPtr inBio = makeBIOPtr(BIO_new_mem_buf(der.data(), (int)der.size()));
+    if (!inBio)
+        return false;
+
+    X509* raw = d2i_X509_bio(inBio.get(), nullptr);
+    if (!raw)
+        return false;
+    X509Ptr cert = makeX509Ptr(raw);
+
+    BIOPtr outBio = makeBIOPtr(BIO_new(BIO_s_mem()));
+    if (!outBio)
+        return false;
+
+    if (!PEM_write_bio_X509(outBio.get(), cert.get()))
+        return false;
+
+    BUF_MEM* bptr = nullptr;
+    BIO_get_mem_ptr(outBio.get(), &bptr);
+    if (!bptr || bptr->length == 0)
+        return false;
+
+    pem.assign(bptr->data, bptr->data + bptr->length);
+    return true;
+}
+
+// Read PEM certificate file and return DER buffer
+inline bool pemCertFileToDerBuffer(const std::string& pemPath,
+                                   std::vector<uint8_t>& der)
+{
+    std::ifstream in(pemPath, std::ios::in | std::ios::binary);
+    if (!in)
+        return false;
+    std::string pem((std::istreambuf_iterator<char>(in)),
+                    std::istreambuf_iterator<char>());
+    return pemStringToDer(pem, der);
+}
+
+// Read DER certificate file and return PEM string
+inline bool derFileToPemString(const std::string& derPath, std::string& pem)
+{
+    std::ifstream in(derPath, std::ios::in | std::ios::binary);
+    if (!in)
+        return false;
+    std::vector<uint8_t> buf((std::istreambuf_iterator<char>(in)),
+                             std::istreambuf_iterator<char>());
+    return derToPemString(buf, pem);
+}
+
+// Write DER certificate file from PEM string
+inline bool pemStringToDerFile(const std::string& pem,
+                               const std::string& derPath)
+{
+    std::vector<uint8_t> der;
+    if (!pemStringToDer(pem, der))
+        return false;
+    std::ofstream out(derPath, std::ios::out | std::ios::binary);
+    if (!out)
+        return false;
+    out.write(reinterpret_cast<const char*>(der.data()),
+              (std::streamsize)der.size());
+    return out.good();
+}
+
+// Write PEM certificate file from DER buffer
+inline bool derBufferToPemCertFile(const std::vector<uint8_t>& der,
+                                   const std::string& pemPath)
+{
+    std::string pem;
+    if (!derToPemString(der, pem))
+        return false;
+    std::ofstream out(pemPath, std::ios::out | std::ios::binary);
+    if (!out)
+        return false;
+    out.write(pem.data(), (std::streamsize)pem.size());
+    return out.good();
+}
+
+// Read PEM private key file and return DER buffer
+inline bool pemKeyFileToDerBuffer(const std::string& pemPath,
+                                  std::vector<uint8_t>& der)
+{
+    std::ifstream in(pemPath, std::ios::in | std::ios::binary);
+    if (!in)
+        return false;
+    std::string pem((std::istreambuf_iterator<char>(in)),
+                    std::istreambuf_iterator<char>());
+    return pemKeyStringToDer(pem, der);
+}
+
+// Read DER private key file and return PEM string
+inline bool derKeyFileToPemString(const std::string& derPath, std::string& pem)
+{
+    std::ifstream in(derPath, std::ios::in | std::ios::binary);
+    if (!in)
+        return false;
+    std::vector<uint8_t> buf((std::istreambuf_iterator<char>(in)),
+                             std::istreambuf_iterator<char>());
+    return derKeyToPemString(buf, pem);
+}
+
+// Write DER private key file from PEM string
+inline bool pemKeyStringToDerFile(const std::string& pem,
+                                  const std::string& derPath)
+{
+    std::vector<uint8_t> der;
+    if (!pemKeyStringToDer(pem, der))
+        return false;
+    std::ofstream out(derPath, std::ios::out | std::ios::binary);
+    if (!out)
+        return false;
+    out.write(reinterpret_cast<const char*>(der.data()),
+              (std::streamsize)der.size());
+    return out.good();
+}
+
+// Write PEM private key file from DER buffer
+inline bool derBufferToPemKeyFile(const std::vector<uint8_t>& der,
+                                  const std::string& pemPath)
+{
+    std::string pem;
+    if (!derKeyToPemString(der, pem))
+        return false;
+    std::ofstream out(pemPath, std::ios::out | std::ios::binary);
+    if (!out)
+        return false;
+    out.write(pem.data(), (std::streamsize)pem.size());
+    return out.good();
+}
+
+// Convert PEM private key (in-memory string) to DER (in-memory buffer)
+inline bool pemKeyStringToDer(const std::string& pem, std::vector<uint8_t>& der)
+{
+    if (pem.empty())
+        return false;
+
+    BIOPtr inBio = makeBIOPtr(BIO_new_mem_buf(pem.data(), (int)pem.size()));
+    if (!inBio)
+        return false;
+
+    EVP_PKEY* raw =
+        PEM_read_bio_PrivateKey(inBio.get(), nullptr, nullptr, nullptr);
+    if (!raw)
+        return false;
+    EVP_PKEYPtr pkey = makeEVPPKeyPtr(raw);
+
+    BIOPtr outBio = makeBIOPtr(BIO_new(BIO_s_mem()));
+    if (!outBio)
+        return false;
+
+    if (!i2d_PrivateKey_bio(outBio.get(), pkey.get()))
+        return false;
+
+    BUF_MEM* bptr = nullptr;
+    BIO_get_mem_ptr(outBio.get(), &bptr);
+    if (!bptr || bptr->length == 0)
+        return false;
+
+    der.assign(reinterpret_cast<uint8_t*>(bptr->data),
+               reinterpret_cast<uint8_t*>(bptr->data) + bptr->length);
+    return true;
+}
+
+// Convert DER private key (in-memory buffer) to PEM (in-memory string)
+inline bool derKeyToPemString(const std::vector<uint8_t>& der, std::string& pem)
+{
+    if (der.empty())
+        return false;
+
+    BIOPtr inBio = makeBIOPtr(BIO_new_mem_buf(der.data(), (int)der.size()));
+    if (!inBio)
+        return false;
+
+    EVP_PKEY* raw = d2i_PrivateKey_bio(inBio.get(), nullptr);
+    if (!raw)
+        return false;
+    EVP_PKEYPtr pkey = makeEVPPKeyPtr(raw);
+
+    BIOPtr outBio = makeBIOPtr(BIO_new(BIO_s_mem()));
+    if (!outBio)
+        return false;
+
+    if (!PEM_write_bio_PrivateKey(outBio.get(), pkey.get(), nullptr, nullptr, 0,
+                                  nullptr, nullptr))
+        return false;
+
+    BUF_MEM* bptr = nullptr;
+    BIO_get_mem_ptr(outBio.get(), &bptr);
+    if (!bptr || bptr->length == 0)
+        return false;
+
+    pem.assign(bptr->data, bptr->data + bptr->length);
+    return true;
+}
+
 openssl_ptr<EVP_PKEY, EVP_PKEY_free> loadPrivateKey(const std::string& path,
                                                     bool pem = true)
 {
@@ -458,7 +695,7 @@ inline openssl_ptr<X509, X509_free> create_certificate(
     }
     openssl_ptr<X509, X509_free> cert(X509_new(), X509_free);
     ASN1_INTEGER_set(X509_get_serialNumber(cert.get()), std::rand());
-    X509_gmtime_adj(X509_get_notBefore(cert.get()), 0);
+    X509_gmtime_adj(X509_get_notBefore(cert.get()), -60); // 1 minute back
     X509_gmtime_adj(X509_get_notAfter(cert.get()),
                     60L * 60L * 24L * days_valid);
     X509_set_pubkey(cert.get(), subject_key);
