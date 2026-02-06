@@ -287,15 +287,8 @@ inline AwaitableResult<PropertyMap> getAllProperties(
     sdbusplus::asio::connection& bus, const std::string& service,
     const std::string& path, const std::string& interface)
 {
-    auto h = make_awaitable_handler<PropertyMap>([&](auto promise) {
-        bus.async_method_call(
-            [promise = std::move(promise)](boost::system::error_code ec,
-                                           const PropertyMap& data) mutable {
-                promise.setValues(ec, data);
-            },
-            service, path, dbusPropertiesInterface, "GetAll", interface);
-    });
-    co_return co_await h();
+    co_return co_await awaitable_dbus_method_call<PropertyMap>(
+        bus, service, path, dbusPropertiesInterface, "GetAll", interface);
 }
 
 /**
@@ -316,16 +309,9 @@ inline AwaitableResult<ReturnType> callObjectMapperMethod(
     sdbusplus::asio::connection& bus, const std::string& method,
     const Args&... args)
 {
-    auto h = make_awaitable_handler<ReturnType>([&](auto promise) {
-        bus.async_method_call(
-            [promise = std::move(promise)](boost::system::error_code ec,
-                                           ReturnType result) mutable {
-                promise.setValues(ec, std::move(result));
-            },
-            objectMapperService, objectMapperPath, objectMapperInterface,
-            method, args...);
-    });
-    co_return co_await h();
+    co_return co_await awaitable_dbus_method_call<ReturnType>(
+        bus, objectMapperService, objectMapperPath, objectMapperInterface,
+        method, args...);
 }
 
 /**
@@ -475,17 +461,10 @@ inline AwaitableResult<DictType> getAssociatedSubTreeById(
     std::string_view association,
     const std::vector<std::string>& endpointInterfaces = {})
 {
-    auto h = make_awaitable_handler<DictType>([&](auto promise) {
-        bus.async_method_call(
-            [promise = std::move(promise)](boost::system::error_code ec,
-                                           DictType dict) mutable {
-                promise.setValues(ec, std::move(dict));
-            },
-            objectMapperService, objectMapperPath, objectMapperInterface,
-            "GetAssociatedSubTreeById", id, path, subtreeInterfaces,
-            association, endpointInterfaces);
-    });
-    co_return co_await h();
+    co_return co_await awaitable_dbus_method_call<DictType>(
+        bus, objectMapperService, objectMapperPath, objectMapperInterface,
+        "GetAssociatedSubTreeById", id, path, subtreeInterfaces, association,
+        endpointInterfaces);
 }
 
 /**
@@ -510,17 +489,10 @@ inline AwaitableResult<DictType> getAssociatedSubTreePathsById(
     std::string_view association,
     const std::vector<std::string>& endpointInterfaces)
 {
-    auto h = make_awaitable_handler<DictType>([&](auto promise) {
-        bus.async_method_call(
-            [promise = std::move(promise)](boost::system::error_code ec,
-                                           DictType dict) mutable {
-                promise.setValues(ec, std::move(dict));
-            },
-            objectMapperService, objectMapperPath, objectMapperInterface,
-            "GetAssociatedSubTreePathsById", id, path, subtreeInterfaces,
-            association, endpointInterfaces);
-    });
-    co_return co_await h();
+    co_return co_await awaitable_dbus_method_call<DictType>(
+        bus, objectMapperService, objectMapperPath, objectMapperInterface,
+        "GetAssociatedSubTreePathsById", id, path, subtreeInterfaces,
+        association, endpointInterfaces);
 }
 
 /**
@@ -539,16 +511,9 @@ inline AwaitableResult<DictType> getDbusObject(
     sdbusplus::asio::connection& bus, const std::string& path,
     const std::vector<std::string>& interfaces = {})
 {
-    auto h = make_awaitable_handler<DictType>([&](auto promise) {
-        bus.async_method_call(
-            [promise = std::move(promise)](boost::system::error_code ec,
-                                           DictType dict) mutable {
-                promise.setValues(ec, std::move(dict));
-            },
-            objectMapperService, objectMapperPath, objectMapperInterface,
-            "GetObject", path, interfaces);
-    });
-    co_return co_await h();
+    co_return co_await awaitable_dbus_method_call<DictType>(
+        bus, objectMapperService, objectMapperPath, objectMapperInterface,
+        "GetObject", path, interfaces);
 }
 
 /**
@@ -595,15 +560,8 @@ inline AwaitableResult<DictType> getManagedObjects(
     sdbusplus::asio::connection& bus, const std::string& service,
     const sdbusplus::message::object_path& path)
 {
-    auto h = make_awaitable_handler<DictType>([&](auto promise) {
-        bus.async_method_call(
-            [promise = std::move(promise)](boost::system::error_code ec,
-                                           DictType dict) mutable {
-                promise.setValues(ec, std::move(dict));
-            },
-            service, path, dbusObjectManagerInterface, "GetManagedObjects");
-    });
-    co_return co_await h();
+    co_return co_await awaitable_dbus_method_call<DictType>(
+        bus, service, path, dbusObjectManagerInterface, "GetManagedObjects");
 }
 /**
  * @brief Get ancestor objects from object mapper
@@ -621,16 +579,9 @@ inline AwaitableResult<DictType> getAncestors(
     sdbusplus::asio::connection& bus, const std::string& path,
     const std::vector<std::string>& interfaces = {})
 {
-    auto h = make_awaitable_handler<DictType>([&](auto promise) {
-        bus.async_method_call(
-            [promise = std::move(promise)](boost::system::error_code ec,
-                                           DictType dict) mutable {
-                promise.setValues(ec, std::move(dict));
-            },
-            objectMapperService, objectMapperPath, objectMapperInterface,
-            "GetAncestors", path, interfaces);
-    });
-    co_return co_await h();
+    co_return co_await awaitable_dbus_method_call<DictType>(
+        bus, objectMapperService, objectMapperPath, objectMapperInterface,
+        "GetAncestors", path, interfaces);
 }
 
 /**
@@ -648,15 +599,8 @@ inline AwaitableResult<std::string> introspect(
     sdbusplus::asio::connection& bus, const std::string& service,
     const sdbusplus::message::object_path& path)
 {
-    auto h = make_awaitable_handler<std::string>([&](auto promise) {
-        bus.async_method_call(
-            [promise = std::move(promise)](boost::system::error_code ec,
-                                           std::string str) mutable {
-                promise.setValues(ec, std::move(str));
-            },
-            service, path, dbusIntrospectableInterface, "Introspect");
-    });
-    co_return co_await h();
+    co_return co_await awaitable_dbus_method_call<std::string>(
+        bus, service, path, dbusIntrospectableInterface, "Introspect");
 }
 /**
  * @brief Get default value for a type

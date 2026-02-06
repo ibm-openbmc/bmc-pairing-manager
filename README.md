@@ -284,6 +284,32 @@ The daemon reads configuration from `/var/provisioning/provisioning.conf`:
 ### Properties
 - **peerConnected**: Connection status (NotDetermined, InProgress, Connected, NotConnected)
 - **provisioned**: Boolean indicating if provisioning is complete
+## Usage Examples
+
+### Provisioning Commands
+
+To provision self:
+```bash
+busctl call xyz.openbmc_project.Provisioning /xyz/openbmc_project/Provisioning xyz.openbmc_project.Provisioning.Provisioning ProvisionPeer s self
+```
+
+To provision a peer (e.g., skiboards):
+```bash
+busctl call xyz.openbmc_project.Provisioning /xyz/openbmc_project/Provisioning xyz.openbmc_project.Provisioning.Provisioning ProvisionPeer s skiboards
+```
+
+### Checking Provisioning Status
+
+To check if provisioned:
+```bash
+busctl get-property xyz.openbmc_project.Provisioning /xyz/openbmc_project/Provisioning xyz.openbmc_project.Provisioning.Provisioning provisioned
+```
+
+To check peer connection status:
+```bash
+busctl get-property xyz.openbmc_project.Provisioning /xyz/openbmc_project/Provisioning xyz.openbmc_project.Provisioning.Provisioning peerConnected
+```
+
 
 ## Error Handling
 
