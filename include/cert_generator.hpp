@@ -46,6 +46,23 @@ BIOPtr makeBIOPtr(BIO* ptr)
 {
     return BIOPtr(ptr, BIO_free_all);
 }
+
+// RAII wrapper for FILE* to prevent resource leaks
+struct FileDeleter
+{
+    void operator()(FILE* ptr) const
+    {
+        if (ptr != nullptr)
+        {
+            fclose(ptr);
+        }
+    }
+};
+using FilePtr = std::unique_ptr<FILE, FileDeleter>;
+inline FilePtr makeFilePtr(FILE* ptr)
+{
+    return FilePtr(ptr);
+}
 class Tpm2
 {
     OSSL_LIB_CTX* libCtx{nullptr};
@@ -54,6 +71,10 @@ class Tpm2
     Tpm2()
     {
         libCtx = OSSL_LIB_CTX_new();
+        if (libCtx == nullptr)
+        {
+            throw std::runtime_error("Failed to allocate OSSL_LIB_CTX");
+        }
         tpmInit();
     }
 
@@ -63,6 +84,10 @@ class Tpm2
         if (tpmProviderHandle)
         {
             dlclose(tpmProviderHandle);
+        }
+        if (libCtx)
+        {
+            OSSL_LIB_CTX_free(libCtx);
         }
     }
 
@@ -109,7 +134,8 @@ class Tpm2
         LOG_ERROR("Failed to load tpm2 provider");
     }
 
-    EVP_PKEYPtr retrievePrivateKeyFromTpm(const std::string& tpmUri)
+    bool retrievePrivateKeyFromTpm(const std::string& tpmUri,
+                                   EVP_PKEYPtr& outKey)
     {
         OSSL_STORE_CTX* storeCtx = nullptr;
         OSSL_STORE_INFO* info = nullptr;
@@ -122,7 +148,7 @@ class Tpm2
         if (!storeCtx)
         {
             LOG_ERROR("Failed to open store context for URI: {}", tpmUri);
-            return makeEVPPKeyPtr(nullptr);
+            return false;
         }
 
         // Iterate until a key is found or end of store reached
@@ -153,11 +179,13 @@ class Tpm2
         if (pkey == nullptr)
         {
             LOG_ERROR("No private key found at URI: {}", tpmUri);
+            return false;
         }
 
-        return makeEVPPKeyPtr(pkey); // Using assumed smart pointer constructor
+        outKey = makeEVPPKeyPtr(pkey);
+        return true;
     }
-    X509Ptr retrieveCertificateFromTpm(const std::string& tpmUri)
+    bool retrieveCertificateFromTpm(const std::string& tpmUri, X509Ptr& outCert)
     {
         OSSL_STORE_CTX* storeCtx = nullptr;
         OSSL_STORE_INFO* info = nullptr;
@@ -170,7 +198,7 @@ class Tpm2
         if (!storeCtx)
         {
             LOG_ERROR("Failed to open store context for URI: {}", tpmUri);
-            return makeX509Ptr(nullptr);
+            return false;
         }
 
         // Iterate until a certificate is found or end of store reached
@@ -201,9 +229,11 @@ class Tpm2
         if (cert == nullptr)
         {
             LOG_ERROR("No certificate found at URI: {}", tpmUri);
+            return false;
         }
 
-        return makeX509Ptr(cert); // Using assumed smart pointer constructor
+        outCert = makeX509Ptr(cert);
+        return true;
     }
 
     static Tpm2& getInstance()
@@ -222,65 +252,59 @@ inline void printLastError()
 // Convert PEM certificate file to DER format and save to file
 bool pemCertToDer(const std::string& pemPath, const std::string& derPath)
 {
-    FILE* pemFile = fopen(pemPath.c_str(), "r");
+    FilePtr pemFile = makeFilePtr(fopen(pemPath.c_str(), "r"));
     if (!pemFile)
         return false;
     X509Ptr cert =
-        makeX509Ptr(PEM_read_X509(pemFile, nullptr, nullptr, nullptr));
-    fclose(pemFile);
+        makeX509Ptr(PEM_read_X509(pemFile.get(), nullptr, nullptr, nullptr));
     if (!cert)
         return false;
 
-    FILE* derFile = fopen(derPath.c_str(), "wb");
+    FilePtr derFile = makeFilePtr(fopen(derPath.c_str(), "wb"));
     if (!derFile)
     {
         return false;
     }
-    int ret = i2d_X509_fp(derFile, cert.get());
-    fclose(derFile);
+    int ret = i2d_X509_fp(derFile.get(), cert.get());
     return ret == 1;
 }
 
 // Convert DER certificate file to PEM format and save to file
 bool derCertToPem(const std::string& derPath, const std::string& pemPath)
 {
-    FILE* derFile = fopen(derPath.c_str(), "rb");
+    FilePtr derFile = makeFilePtr(fopen(derPath.c_str(), "rb"));
     if (!derFile)
         return false;
-    X509Ptr cert = makeX509Ptr(d2i_X509_fp(derFile, nullptr));
-    fclose(derFile);
+    X509Ptr cert = makeX509Ptr(d2i_X509_fp(derFile.get(), nullptr));
     if (!cert)
         return false;
 
-    FILE* pemFile = fopen(pemPath.c_str(), "w");
+    FilePtr pemFile = makeFilePtr(fopen(pemPath.c_str(), "w"));
     if (!pemFile)
     {
         return false;
     }
-    int ret = PEM_write_X509(pemFile, cert.get());
-    fclose(pemFile);
+    int ret = PEM_write_X509(pemFile.get(), cert.get());
     return ret == 1;
 }
 
 // Convert PEM private key file to DER format and save to file
 bool pemKeyToDer(const std::string& pemPath, const std::string& derPath)
 {
-    FILE* pemFile = fopen(pemPath.c_str(), "r");
+    FilePtr pemFile = makeFilePtr(fopen(pemPath.c_str(), "r"));
     if (!pemFile)
         return false;
-    EVP_PKEYPtr pkey =
-        makeEVPPKeyPtr(PEM_read_PrivateKey(pemFile, nullptr, nullptr, nullptr));
-    fclose(pemFile);
+    EVP_PKEYPtr pkey = makeEVPPKeyPtr(
+        PEM_read_PrivateKey(pemFile.get(), nullptr, nullptr, nullptr));
     if (!pkey)
         return false;
 
-    FILE* derFile = fopen(derPath.c_str(), "wb");
+    FilePtr derFile = makeFilePtr(fopen(derPath.c_str(), "wb"));
     if (!derFile)
     {
         return false;
     }
-    int ret = i2d_PrivateKey_fp(derFile, pkey.get());
-    fclose(derFile);
+    int ret = i2d_PrivateKey_fp(derFile.get(), pkey.get());
 
     return ret == 1;
 }
@@ -288,22 +312,21 @@ bool pemKeyToDer(const std::string& pemPath, const std::string& derPath)
 // Convert DER private key file to PEM format and save to file
 bool derKeyToPem(const std::string& derPath, const std::string& pemPath)
 {
-    FILE* derFile = fopen(derPath.c_str(), "rb");
+    FilePtr derFile = makeFilePtr(fopen(derPath.c_str(), "rb"));
     if (!derFile)
         return false;
-    EVP_PKEYPtr pkey = makeEVPPKeyPtr(d2i_PrivateKey_fp(derFile, nullptr));
-    fclose(derFile);
+    EVP_PKEYPtr pkey =
+        makeEVPPKeyPtr(d2i_PrivateKey_fp(derFile.get(), nullptr));
     if (!pkey)
         return false;
 
-    FILE* pemFile = fopen(pemPath.c_str(), "w");
+    FilePtr pemFile = makeFilePtr(fopen(pemPath.c_str(), "w"));
     if (!pemFile)
     {
         return false;
     }
-    int ret = PEM_write_PrivateKey(pemFile, pkey.get(), nullptr, nullptr, 0,
-                                   nullptr, nullptr);
-    fclose(pemFile);
+    int ret = PEM_write_PrivateKey(pemFile.get(), pkey.get(), nullptr, nullptr,
+                                   0, nullptr, nullptr);
     return ret == 1;
 }
 
@@ -599,71 +622,64 @@ openssl_ptr<X509_NAME, X509_NAME_free> generateX509Name(
 
     return name;
 }
-openssl_ptr<EVP_PKEY, EVP_PKEY_free> generate_key_pair()
+openssl_ptr<OSSL_PARAM, OSSL_PARAM_free> buildRSAParams(int bits,
+                                                        unsigned long exponent)
 {
-    // Create an EVP_PKEY_CTX for RSA key generation.
-    openssl_ptr<EVP_PKEY_CTX, EVP_PKEY_CTX_free> pkey_ctx(
-        EVP_PKEY_CTX_new_from_name(nullptr, "RSA", nullptr), EVP_PKEY_CTX_free);
-    if (!pkey_ctx)
-    {
-        // Handle error
-        return makeEVPPKeyPtr(nullptr);
-    }
-
-    if (EVP_PKEY_keygen_init(pkey_ctx.get()) <= 0)
-    {
-        // Handle error
-        return makeEVPPKeyPtr(nullptr);
-    }
-
-    // Use OSSL_PARAM_BLD to construct the parameter list.
     openssl_ptr<OSSL_PARAM_BLD, OSSL_PARAM_BLD_free> param_bld(
         OSSL_PARAM_BLD_new(), OSSL_PARAM_BLD_free);
     if (!param_bld)
     {
-        return makeEVPPKeyPtr(nullptr);
+        return {nullptr, OSSL_PARAM_free};
     }
 
-    // Set the key size parameter.
     if (OSSL_PARAM_BLD_push_int(param_bld.get(), OSSL_PKEY_PARAM_RSA_BITS,
-                                2048) <= 0)
+                                bits) <= 0)
     {
-        return makeEVPPKeyPtr(nullptr);
+        return {nullptr, OSSL_PARAM_free};
     }
-
-    // Set the public exponent parameter.
 
     openssl_ptr<BIGNUM, BN_free> e(BN_new(), BN_free);
-    if (!e || !BN_set_word(e.get(), RSA_F4))
+    if (!e || !BN_set_word(e.get(), exponent))
     {
-        return makeEVPPKeyPtr(nullptr);
+        return {nullptr, OSSL_PARAM_free};
     }
+
     if (OSSL_PARAM_BLD_push_BN(param_bld.get(), OSSL_PKEY_PARAM_RSA_E,
                                e.get()) <= 0)
     {
-        return makeEVPPKeyPtr(nullptr);
+        return {nullptr, OSSL_PARAM_free};
     }
 
-    // Build the OSSL_PARAM array from the builder.
-    openssl_ptr<OSSL_PARAM, OSSL_PARAM_free> params(
-        OSSL_PARAM_BLD_to_param(param_bld.get()), OSSL_PARAM_free);
+    return {OSSL_PARAM_BLD_to_param(param_bld.get()), OSSL_PARAM_free};
+}
+
+openssl_ptr<OSSL_PARAM, OSSL_PARAM_free> getCachedRSA2048Params()
+{
+    static openssl_ptr<OSSL_PARAM, OSSL_PARAM_free> cached =
+        buildRSAParams(2048, RSA_F4);
+    return {cached.get(), [](OSSL_PARAM*) {}};
+}
+
+openssl_ptr<EVP_PKEY, EVP_PKEY_free> generate_key_pair()
+{
+    openssl_ptr<EVP_PKEY_CTX, EVP_PKEY_CTX_free> pkey_ctx(
+        EVP_PKEY_CTX_new_from_name(nullptr, "RSA", nullptr), EVP_PKEY_CTX_free);
+    if (!pkey_ctx)
+        return makeEVPPKeyPtr(nullptr);
+
+    if (EVP_PKEY_keygen_init(pkey_ctx.get()) <= 0)
+        return makeEVPPKeyPtr(nullptr);
+
+    auto params = getCachedRSA2048Params();
     if (!params)
-    {
         return makeEVPPKeyPtr(nullptr);
-    }
 
-    // Set all parameters on the keygen context at once.
     if (EVP_PKEY_CTX_set_params(pkey_ctx.get(), params.get()) <= 0)
-    {
         return makeEVPPKeyPtr(nullptr);
-    }
 
-    // Generate the key pair directly into an EVP_PKEY object.
     EVP_PKEY* raw_pkey = nullptr;
     if (EVP_PKEY_keygen(pkey_ctx.get(), &raw_pkey) <= 0)
-    {
         return makeEVPPKeyPtr(nullptr);
-    }
 
     return makeEVPPKeyPtr(raw_pkey);
 }
@@ -679,6 +695,7 @@ bool isSignedByCA(const openssl_ptr<X509, X509_free>& cert,
     {
         printLastError();
         LOG_ERROR("Certificate signature verification failed");
+        return false;
     }
     return true;
 }
@@ -691,6 +708,12 @@ inline openssl_ptr<X509, X509_free> create_certificate(
     if (!subject_key || !subject_name || !issuer_pkey || !issuer_name)
     {
         LOG_ERROR("Invalid parameters for certificate creation");
+        return makeX509Ptr(nullptr);
+    }
+    if (days_valid < 1 || days_valid > 36500)
+    {
+        LOG_ERROR("Invalid days_valid: {}. Must be between 1 and 36500 days",
+                  days_valid);
         return makeX509Ptr(nullptr);
     }
     openssl_ptr<X509, X509_free> cert(X509_new(), X509_free);
@@ -742,6 +765,13 @@ inline std::pair<X509Ptr, EVP_PKEYPtr> create_ca_cert(
     EVP_PKEY* signkey, X509_NAME* signname, const std::string& common_name,
     int days_valid = 365)
 {
+    if (days_valid < 1 || days_valid > 36500)
+    {
+        LOG_ERROR("Invalid days_valid: {}. Must be between 1 and 36500 days",
+                  days_valid);
+        return std::make_pair(X509Ptr(nullptr, X509_free),
+                              EVP_PKEYPtr(nullptr, EVP_PKEY_free));
+    }
     auto pkey = generate_key_pair();
     openssl_ptr<X509_NAME, X509_NAME_free> name = generateX509Name(common_name);
     if (!name)
@@ -772,12 +802,60 @@ inline std::pair<X509Ptr, EVP_PKEYPtr> create_leaf_cert(
     EVP_PKEY* ca_pkey, X509_NAME* ca_name, const std::string& common_name,
     int days_valid = 365)
 {
+    if (days_valid < 1 || days_valid > 36500)
+    {
+        LOG_ERROR("Invalid days_valid: {}. Must be between 1 and 36500 days",
+                  days_valid);
+        return std::make_pair(X509Ptr(nullptr, X509_free),
+                              EVP_PKEYPtr(nullptr, EVP_PKEY_free));
+    }
     auto pkey = generate_key_pair();
     auto name = generateX509Name(common_name);
 
     auto cert = create_certificate(pkey.get(), name.get(), ca_pkey, ca_name,
                                    days_valid, false);
     return std::make_pair(std::move(cert), std::move(pkey));
+}
+
+inline bool checkTimeValidity(const ASN1_TIME* time, const char* message)
+{
+    if (X509_cmp_current_time(time) > 0)
+    {
+        LOG_ERROR("{}", message);
+        return false;
+    }
+    return true;
+}
+
+inline bool checkTimeExpiry(const ASN1_TIME* time, const char* message)
+{
+    if (X509_cmp_current_time(time) < 0)
+    {
+        LOG_ERROR("{}", message);
+        return false;
+    }
+    return true;
+}
+
+inline bool checkX509Name(X509_NAME* name, const char* message)
+{
+    if (!name || X509_NAME_entry_count(name) == 0)
+    {
+        LOG_ERROR("{}", message);
+        return false;
+    }
+    return true;
+}
+
+inline bool checkPublicKeyType(const EVP_PKEY* pubkey)
+{
+    int keyType = EVP_PKEY_base_id(pubkey);
+    if (keyType != EVP_PKEY_RSA && keyType != EVP_PKEY_EC)
+    {
+        LOG_ERROR("Certificate public key is not RSA or EC");
+        return false;
+    }
+    return true;
 }
 
 bool checkValidity(const openssl_ptr<X509, X509_free>& cert)
@@ -788,51 +866,40 @@ bool checkValidity(const openssl_ptr<X509, X509_free>& cert)
         return false;
     }
 
-    // Check validity period
-    if (X509_cmp_current_time(X509_get_notBefore(cert.get())) > 0)
+    if (!checkTimeValidity(X509_get_notBefore(cert.get()),
+                           "Certificate is not yet valid"))
     {
-        LOG_ERROR("Certificate is not yet valid");
         return false;
     }
-    if (X509_cmp_current_time(X509_get_notAfter(cert.get())) < 0)
+    if (!checkTimeExpiry(X509_get_notAfter(cert.get()),
+                         "Certificate has expired"))
     {
-        LOG_ERROR("Certificate has expired");
-        return false;
-    }
-
-    // Check subject
-    X509_NAME* subject = X509_get_subject_name(cert.get());
-    if (!subject || X509_NAME_entry_count(subject) == 0)
-    {
-        LOG_ERROR("Certificate subject is invalid or missing");
         return false;
     }
 
-    // Check issuer
-    X509_NAME* issuer = X509_get_issuer_name(cert.get());
-    if (!issuer || X509_NAME_entry_count(issuer) == 0)
+    if (!checkX509Name(X509_get_subject_name(cert.get()),
+                       "Certificate subject is invalid or missing"))
     {
-        LOG_ERROR("Certificate issuer is invalid or missing");
         return false;
     }
 
-    // Check public key
-    EVP_PKEY* pubkey = X509_get_pubkey(cert.get());
+    if (!checkX509Name(X509_get_issuer_name(cert.get()),
+                       "Certificate issuer is invalid or missing"))
+    {
+        return false;
+    }
+
+    const EVP_PKEY* pubkey = X509_get0_pubkey(cert.get());
     if (!pubkey)
     {
         LOG_ERROR("Certificate public key is invalid or missing");
         return false;
     }
-    if (EVP_PKEY_base_id(pubkey) != EVP_PKEY_RSA &&
-        EVP_PKEY_base_id(pubkey) != EVP_PKEY_EC)
+    if (!checkPublicKeyType(pubkey))
     {
-        LOG_ERROR("Certificate public key is not RSA or EC");
-        EVP_PKEY_free(pubkey);
         return false;
     }
-    EVP_PKEY_free(pubkey);
 
-    // Check serial number
     ASN1_INTEGER* serial = X509_get_serialNumber(cert.get());
     if (!serial || ASN1_INTEGER_get(serial) <= 0)
     {
@@ -840,7 +907,6 @@ bool checkValidity(const openssl_ptr<X509, X509_free>& cert)
         return false;
     }
 
-    // Check signature algorithm
     const X509_ALGOR* sig_alg = X509_get0_tbs_sigalg(cert.get());
     if (!sig_alg)
     {
@@ -848,15 +914,6 @@ bool checkValidity(const openssl_ptr<X509, X509_free>& cert)
         return false;
     }
 
-    // Check if certificate is signed
-    // if (X509_verify(cert.get(), X509_get_pubkey(cert.get())) != 1)
-    // {
-    //     LOG_ERROR("Certificate signature verification failed");
-    //     return false;
-    // }
-
-    // Optionally check for required extensions (e.g., basicConstraints,
-    // keyUsage)
     int ext_index = X509_get_ext_by_NID(cert.get(), NID_basic_constraints, -1);
     if (ext_index < 0)
     {
@@ -864,7 +921,6 @@ bool checkValidity(const openssl_ptr<X509, X509_free>& cert)
         return false;
     }
 
-    // Optionally check version (should be v3 for most use cases)
     if (X509_get_version(cert.get()) != 2)
     {
         LOG_ERROR("Certificate version is not v3");
@@ -893,7 +949,7 @@ bool saveBio(const std::string& path, const openssl_ptr<BIO, BIO_free_all>& bio)
     LOG_DEBUG("BIO data saved to {}", path);
     return true;
 }
-openssl_ptr<BIO, BIO_free_all> loadCertificate(
+openssl_ptr<BIO, BIO_free_all> certificateToBio(
     const openssl_ptr<X509, X509_free>& cert, bool pem = true)
 {
     if (!checkValidity(cert))
@@ -922,10 +978,47 @@ openssl_ptr<BIO, BIO_free_all> loadCertificate(
     }
     return bio;
 }
+// Load certificate from uint8_t data buffer
+openssl_ptr<X509, X509_free> loadCertificate(
+    const std::vector<uint8_t>& certData, bool pem = true)
+{
+    if (certData.empty())
+    {
+        LOG_ERROR("Certificate data is empty");
+        return makeX509Ptr(nullptr);
+    }
+
+    auto certbio =
+        makeBIOPtr(BIO_new_mem_buf(certData.data(), certData.size()));
+    if (!certbio)
+    {
+        LOG_ERROR("Failed to create BIO from certificate data");
+        return makeX509Ptr(nullptr);
+    }
+
+    X509* cert{nullptr};
+    if (pem)
+    {
+        cert = PEM_read_bio_X509(certbio.get(), nullptr, nullptr, nullptr);
+    }
+    else
+    {
+        cert = d2i_X509_bio(certbio.get(), nullptr);
+    }
+
+    if (!cert)
+    {
+        printLastError();
+        LOG_ERROR("Failed to parse certificate from data buffer");
+    }
+
+    return makeX509Ptr(cert);
+}
+
 bool saveCertificate(const std::string& path,
                      const openssl_ptr<X509, X509_free>& cert, bool pem = true)
 {
-    if (!saveBio(path, loadCertificate(cert, pem)))
+    if (!saveBio(path, certificateToBio(cert, pem)))
     {
         LOG_ERROR("Failed to save certificate to file {}", path);
         return false;
@@ -969,7 +1062,7 @@ bool saveCertificate(const std::string& path, const std::vector<X509*>& certs,
     return saveBio(path, std::move(bio));
 }
 
-openssl_ptr<BIO, BIO_free_all> loadPrivateKey(
+openssl_ptr<BIO, BIO_free_all> privateKeyToBio(
     const openssl_ptr<EVP_PKEY, EVP_PKEY_free>& pkey, bool pem = true)
 {
     openssl_ptr<BIO, BIO_free_all> bio(BIO_new(BIO_s_mem()), BIO_free_all);
@@ -996,7 +1089,7 @@ bool savePrivateKey(const std::string& path,
                     const openssl_ptr<EVP_PKEY, EVP_PKEY_free>& pkey,
                     bool pem = true)
 {
-    if (!saveBio(path, loadPrivateKey(pkey, pem)))
+    if (!saveBio(path, privateKeyToBio(pkey, pem)))
     {
         LOG_ERROR("Failed to save private key to file {}", path);
         return false;
@@ -1006,7 +1099,7 @@ bool savePrivateKey(const std::string& path,
 }
 std::string toString(const openssl_ptr<X509, X509_free>& cert, bool pem = true)
 {
-    auto bio = loadCertificate(cert, pem);
+    auto bio = certificateToBio(cert, pem);
     if (!bio)
     {
         LOG_ERROR("Failed to load certificate into BIO");
@@ -1020,7 +1113,7 @@ std::string toString(const openssl_ptr<X509, X509_free>& cert, bool pem = true)
 std::string toString(const openssl_ptr<EVP_PKEY, EVP_PKEY_free>& pkey,
                      bool pem = true)
 {
-    auto bio = loadPrivateKey(pkey, pem);
+    auto bio = privateKeyToBio(pkey, pem);
     if (!bio)
     {
         LOG_ERROR("Failed to load private key into BIO");
