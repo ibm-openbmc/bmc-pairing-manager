@@ -163,9 +163,9 @@ nlohmann::json loadConfig(const std::string& configPath)
         {"sign-cert", std::string{"/etc/ssl/certs/https/signing.pem"}},
         {"verify-cert", std::string{"/etc/ssl/certs/bmc.ca.pem"}},
         {"self-signed", true},
-        {"port", std::string{"8091"}},
+        {"port", 8091},
         {"ip", std::string{"0.0.0.0"}},
-        {"interface_id", std::string{"eth1"}},
+        {"interface_id", std::string{"eth2"}},
         {"exchange_prefix", std::string{"/"}},
         {"resources", nlohmann::json::array()}};
 }
@@ -198,7 +198,7 @@ int main(int argc, const char* argv[])
         auto caCert =
             json.value("verify-cert", std::string{"/etc/ssl/certs/bmc.ca.pem"});
         auto self_signed = json.value("self-signed", false);
-        auto port = json.value("port", std::string{});
+        auto port = json.value("port", 8091);
         auto myip = json.value("ip", std::string{"0.0.0.0"});
         auto iface = json.value("interface_id", std::string{"eth2"});
         prefix = json.value("exchange_prefix", std::string{"/"});
@@ -219,7 +219,7 @@ int main(int argc, const char* argv[])
         auto serverCtx =
             loadServerContext(servercert, serverprivkey, caCert, self_signed);
         TcpStreamType acceptor(io_context.get_executor(), myip,
-                               std::atoi(port.data()), serverCtx);
+                               port, serverCtx);
         EventQueue eventQueue(io_context.get_executor(), acceptor,
                               ssl_client_context, maxConnections);
         auto conn = std::make_shared<sdbusplus::asio::connection>(io_context);
@@ -249,7 +249,7 @@ int main(int argc, const char* argv[])
 
         auto neighbourHandler = createNeighbourHandler(
             io_context, conn, dbusServer, attestationHandler,
-            attestationResponder, attestationDevice, port);
+            attestationResponder, attestationDevice, std::format("{}",port));
 
         DbusSignalWatcher<sdbusplus::message_t>::watch(
             io_context, conn, makeNeighbourDiscoveryHandler(neighbourHandler),
