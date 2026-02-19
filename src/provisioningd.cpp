@@ -279,7 +279,7 @@ nlohmann::json loadConfig(const std::string& configPath)
         return nlohmann::json::parse(confFile);
     }
     return nlohmann::json{
-        {"port", 8090}, {"cert_root", "/"}, {"interface_id", "eth1"}};
+        {"port", 8090}, {"cert_root", "/"}, {"interface_id", "eth2"}};
 }
 int main(int argc, const char* argv[])
 {
