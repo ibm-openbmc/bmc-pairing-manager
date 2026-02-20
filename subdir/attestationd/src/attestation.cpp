@@ -137,7 +137,9 @@ auto createNeighbourHandler(
             remotePort](const std::string& address,
                         const std::string& name) -> net::awaitable<void> {
         LOG_INFO("Neighbour LLDP Address : {} Name : {} ", address, name);
-        AttestationDeviceIface::ResponderInfo responderInfo{name, address,
+        std::string sanitizedName = name;
+        std::replace(sanitizedName.begin(), sanitizedName.end(), '-', '_');
+        AttestationDeviceIface::ResponderInfo responderInfo{sanitizedName, address,
                                                             remotePort};
         attestationDevice.reset();
         attestationDevice = std::make_shared<AttestationDeviceIface>(
