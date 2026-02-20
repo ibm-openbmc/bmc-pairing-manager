@@ -28,7 +28,9 @@ struct AttestationDeviceIface
         conn(conn), dbusServer(dbusServer), responderInfo(rInfo),
         attestationHandler(handler)
     {
+        
         auto ifacePath = std::format(objPath, responderInfo.id);
+        LOG_DEBUG("Creatign request at {}",ifacePath);
         iface = dbusServer.add_interface(ifacePath, interface);
         // test generic properties
         iface->register_method("attest", [this]() { attest(); });
@@ -38,7 +40,9 @@ struct AttestationDeviceIface
         iface->register_property("remote_port", responderInfo.eport,
                                  sdbusplus::asio::PropertyPermission::readOnly);
         iface->register_signal<bool>(signalName); // signal name
+        LOG_DEBUG("Intialising iface");
         iface->initialize();
+        LOG_DEBUG("Attestation requester iface created");
     }
     ~AttestationDeviceIface()
     {
