@@ -1,7 +1,7 @@
 #pragma once
-#include <systemd/sd-journal.h>
-
 #include "name_space.hpp"
+
+#include <systemd/sd-journal.h>
 
 #include <format>
 #include <iostream>
@@ -81,6 +81,11 @@ class Logger
     void setLogLevel(LogLevel level)
     {
         currentLogLevel = level;
+    }
+
+    LogLevel getLogLevel() const
+    {
+        return currentLogLevel;
     }
 
   private:

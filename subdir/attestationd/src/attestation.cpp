@@ -6,6 +6,7 @@
 #include "certificate_exchange.hpp"
 #include "command_line_parser.hpp"
 #include "dbusproperty_watcher.hpp"
+#include "debug_controller.hpp"
 #include "eventmethods.hpp"
 #include "eventqueue.hpp"
 #include "lldp_neighbour_handlers.hpp"
@@ -107,20 +108,21 @@ void intialiseAttestationHandler(
     AttestationHandler& attestationHandler, AttestationDeviceIface& deviceIface,
     AttestationResponderIface& attestationResponder)
 {
-    attestationHandler.setAttestationFinishHandler(
-        [&](bool status, bool resp) -> net::awaitable<void> {
-            LOG_INFO("Attestation Handshake finished with status: {} resp {}",
-                     status, resp);
-            if (resp)
-            {
-                attestationResponder.emitStatus(status);
-            }
-            else
-            {
-                deviceIface.emitStatus(status);
-            }
-            co_return;
-        });
+    attestationHandler.setAttestationFinishHandler([&](bool status, bool resp)
+                                                       -> net::awaitable<void> {
+        LOG_INFO(
+            "Attestation Handshake finished with status: {} is-responder {}",
+            status, resp);
+        if (resp)
+        {
+            attestationResponder.emitStatus(status);
+        }
+        else
+        {
+            deviceIface.emitStatus(status);
+        }
+        co_return;
+    });
 }
 
 auto createNeighbourHandler(
@@ -209,7 +211,7 @@ int main(int argc, const char* argv[])
         auto maxConnections = 1;
 
         auto& logger = reactor::getLogger();
-        logger.setLogLevel(reactor::LogLevel::DEBUG);
+        logger.setLogLevel(reactor::LogLevel::WARNING);
         net::io_context io_context;
         if (!ensureCertificates(servercert, self_signed))
         {
@@ -245,6 +247,13 @@ int main(int argc, const char* argv[])
             }
         }
         sdbusplus::asio::object_server dbusServer(conn);
+
+        // Create object server for D-Bus interfaces
+        auto objServer = std::make_shared<sdbusplus::asio::object_server>(conn);
+
+        // Create debug controller for runtime log level control
+        DebugController debugController(conn, objServer);
+
         std::shared_ptr<AttestationDeviceIface> attestationDevice;
         AttestationResponderIface attestationResponder(conn, dbusServer,
                                                        "responder1");

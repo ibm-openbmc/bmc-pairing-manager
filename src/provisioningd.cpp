@@ -2,6 +2,7 @@
 #include "cert_generator.hpp"
 #include "command_line_parser.hpp"
 #include "dbusproperty_watcher.hpp"
+#include "debug_controller.hpp"
 #include "lldp_neighbour_handlers.hpp"
 #include "provisioning_object.hpp"
 #include "ssl_functions.hpp"
@@ -291,6 +292,7 @@ net::awaitable<void> startSpdm(
         if (ec)
         {
             LOG_ERROR("Failed to start spdm: {}", ec.message());
+            controller.peerProvisioned(false);
             co_return;
         }
 
@@ -342,7 +344,7 @@ int main(int argc, const char* argv[])
     try
     {
         auto& logger = getLogger();
-        logger.setLogLevel(LogLevel::DEBUG);
+        logger.setLogLevel(LogLevel::WARNING);
         Tpm2::getInstance(); // Initialize TPM2 provider
         net::io_context io_context;
 
@@ -357,6 +359,13 @@ int main(int argc, const char* argv[])
         auto conn = std::make_shared<sdbusplus::asio::connection>(io_context);
         ProvisioningController controller(io_context, conn);
         conn->request_name(ProvisioningController::busName);
+
+        // Create object server for D-Bus interfaces
+        auto objServer = std::make_shared<sdbusplus::asio::object_server>(conn);
+
+        // Create debug controller for runtime log level control
+        DebugController debugController(conn, objServer);
+
         std::shared_ptr<BmcResponder> bmcResponder;
         auto sslCtx = getServerContext();
         if (sslCtx)
