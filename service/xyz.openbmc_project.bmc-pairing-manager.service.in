@@ -1,0 +1,10 @@
+[Unit]
+Description=BMC Pairing Manager D-Bus Service
+
+[Service]
+ExecStart=/usr/bin/bmc-pairing-manager -c /etc/bmc-pairing-manager/bmc-pairing-manager.conf
+Restart=always
+Type=dbus
+BusName=@DEFAULT_BUSNAME@
+[Install]
+WantedBy=network.target
