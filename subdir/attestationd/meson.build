@@ -4,7 +4,7 @@
 
 executable('attestationd',
   'src/attestation.cpp',
-  dependencies: [provisioning_dep],
+  dependencies: [bmc_pairing_manager_dep],
   cpp_args: ['-DBOOST_ASIO_DISABLE_THREADS'],
   include_directories:['src'],
   install: true,
