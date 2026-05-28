@@ -1,10 +1,10 @@
+#include "bmc_pairing_manager_object.hpp"
 #include "bmcresponder.hpp"
 #include "cert_generator.hpp"
 #include "command_line_parser.hpp"
 #include "dbusproperty_watcher.hpp"
 #include "debug_controller.hpp"
 #include "lldp_neighbour_handlers.hpp"
-#include "provisioning_object.hpp"
 #include "ssl_functions.hpp"
 #include "tcp_client.hpp"
 #include "tcp_server.hpp"
@@ -187,9 +187,9 @@ net::awaitable<boost::system::error_code> connect(
 }
 net::awaitable<void> tryConnect(net::io_context& io_context,
                                 const std::string& ip, short port,
-                                ProvisioningController& controller)
+                                BmcPairingManagerObject& controller)
 {
-    auto dir = ProvisioningController::ConnectionDirection::outgoing;
+    auto dir = BmcPairingManagerObject::ConnectionDirection::outgoing;
     controller.setPeerConnected(
         ProvisioningIface::PeerConnectionStatus::InProgress, dir);
     LOG_DEBUG("Trying peer connection");
@@ -220,7 +220,7 @@ net::awaitable<void> tryConnect(net::io_context& io_context,
 
 std::shared_ptr<BmcResponder> makeBmcResponder(
     net::io_context& ctx, ssl::context sslCtx, short port,
-    ProvisioningController& controller)
+    BmcPairingManagerObject& controller)
 {
     auto bmcResponder =
         std::make_shared<BmcResponder>(ctx, std::move(sslCtx), port);
@@ -229,12 +229,12 @@ std::shared_ptr<BmcResponder> makeBmcResponder(
         controller.setPeerConnected(
             connected ? ProvisioningIface::PeerConnectionStatus::Connected
                       : ProvisioningIface::PeerConnectionStatus::NotConnected,
-            ProvisioningController::ConnectionDirection::incoming);
+            BmcPairingManagerObject::ConnectionDirection::incoming);
     });
     return bmcResponder;
 }
 net::awaitable<void> onNeighbourFound(
-    net::io_context& io_context, ProvisioningController& controller,
+    net::io_context& io_context, BmcPairingManagerObject& controller,
     short rport, const std::string& address, const std::string& name)
 {
     LOG_INFO("LLDP Neighbour IP found: {} Name: {}", address, name);
@@ -249,7 +249,8 @@ net::awaitable<void> onNeighbourFound(
     co_return;
 }
 net::awaitable<void> onSpdmStateChange(
-    net::io_context& io_context, short port, ProvisioningController& controller,
+    net::io_context& io_context, short port,
+    BmcPairingManagerObject& controller,
     std::shared_ptr<BmcResponder>& bmcResponder,
     const boost::system::error_code& ec, std::optional<bool> val)
 {
@@ -275,7 +276,7 @@ net::awaitable<void> onSpdmStateChange(
 }
 net::awaitable<void> startSpdm(
     std::shared_ptr<sdbusplus::asio::connection> conn, net::io_context& ioc,
-    short port, const std::string& iface, ProvisioningController& controller,
+    short port, const std::string& iface, BmcPairingManagerObject& controller,
     std::shared_ptr<BmcResponder>& bmcResponder, const std::string& deviceName)
 {
     try
@@ -357,8 +358,8 @@ int main(int argc, const char* argv[])
         gRetryTime = confJson.value("retry_timer", 30);
 
         auto conn = std::make_shared<sdbusplus::asio::connection>(io_context);
-        ProvisioningController controller(io_context, conn);
-        conn->request_name(ProvisioningController::busName);
+        BmcPairingManagerObject controller(io_context, conn);
+        conn->request_name(BmcPairingManagerObject::busName);
 
         // Create object server for D-Bus interfaces
         auto objServer = std::make_shared<sdbusplus::asio::object_server>(conn);
