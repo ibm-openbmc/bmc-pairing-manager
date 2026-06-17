@@ -6,6 +6,8 @@ using namespace reactor;
 using Streamer = reactor::TimedStreamer<ssl::stream<tcp::socket>>;
 struct BmcResponder
 {
+    // Maximum allowed message size to prevent buffer overflow
+    static constexpr size_t MAX_MESSAGE_SIZE = 1024;
     ssl::context ssl;
     TcpStreamType acceptor;
     TcpServer<TcpStreamType, BmcResponder> server;
@@ -27,7 +29,7 @@ struct BmcResponder
         watcherCallback(true);
         while (true)
         {
-            std::array<char, 1024> data;
+            std::array<char, MAX_MESSAGE_SIZE> data;
             boost::system::error_code ec;
             size_t bytes{0};
             std::tie(ec, bytes) = co_await streamer.read(net::buffer(data));
@@ -38,6 +40,19 @@ struct BmcResponder
                     continue;
                 }
                 LOG_ERROR("Error reading: {}", ec.message());
+                if (watcherCallback)
+                {
+                    watcherCallback(false);
+                }
+                co_return;
+            }
+
+            // Validate message size
+            if (bytes > MAX_MESSAGE_SIZE)
+            {
+                LOG_ERROR(
+                    "Received message size {} exceeds maximum allowed size {}",
+                    bytes, MAX_MESSAGE_SIZE);
                 if (watcherCallback)
                 {
                     watcherCallback(false);
