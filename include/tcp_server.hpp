@@ -1,4 +1,5 @@
 #pragma once
+#include "logger.hpp"
 #include "make_awaitable.hpp"
 #include "socket_streams.hpp"
 
@@ -47,7 +48,7 @@ class TcpServer
             boost::asio::redirect_error(boost::asio::use_awaitable, ec));
         if (ec)
         {
-            // SSL handshake failed, log and return gracefully
+            LOG_ERROR("Ssl handshake error {}", ec.message());
             co_return;
         }
         if constexpr (requires { router(socket); })

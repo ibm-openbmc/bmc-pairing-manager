@@ -1,4 +1,5 @@
 #pragma once
+#include "logger.hpp"
 #include "pic_controller.hpp"
 #include "sdbus_calls.hpp"
 
@@ -21,7 +22,7 @@ using UnsupportedRequest =
     sdbusplus::xyz::openbmc_project::Common::Error::UnsupportedRequest;
 using NotAllowed = sdbusplus::xyz::openbmc_project::Common::Error::NotAllowed;
 
-struct ProvisioningController : Ifaces
+struct BmcPairingManagerObject : Ifaces
 {
     net::io_context& ioContext;
     std::shared_ptr<sdbusplus::asio::connection> conn;
@@ -42,14 +43,14 @@ struct ProvisioningController : Ifaces
     static constexpr auto objPath = "/xyz/openbmc_project/BmcPairingManager";
     static constexpr auto interface = Provisioning::interface;
 
-    ProvisioningController() = delete;
-    ~ProvisioningController() = default;
-    ProvisioningController(const ProvisioningController&) = delete;
-    ProvisioningController& operator=(const ProvisioningController&) = delete;
-    ProvisioningController(ProvisioningController&&) = delete;
-    ProvisioningController& operator=(ProvisioningController&&) = delete;
-    ProvisioningController(net::io_context& ctx,
-                           std::shared_ptr<sdbusplus::asio::connection> conn) :
+    BmcPairingManagerObject() = delete;
+    ~BmcPairingManagerObject() = default;
+    BmcPairingManagerObject(const BmcPairingManagerObject&) = delete;
+    BmcPairingManagerObject& operator=(const BmcPairingManagerObject&) = delete;
+    BmcPairingManagerObject(BmcPairingManagerObject&&) = delete;
+    BmcPairingManagerObject& operator=(BmcPairingManagerObject&&) = delete;
+    BmcPairingManagerObject(net::io_context& ctx,
+                            std::shared_ptr<sdbusplus::asio::connection> conn) :
         Ifaces(*conn, objPath, Ifaces::action::defer_emit), ioContext(ctx),
         conn(conn)
 

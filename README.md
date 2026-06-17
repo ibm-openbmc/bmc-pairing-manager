@@ -1,23 +1,26 @@
-# Provisioning 
+# BMC Pairing Manager
 ## Overview
 
-The Provisioning Daemon (`provisioningd`) is a secure BMC (Baseboard Management Controller) provisioning service that facilitates mutual authentication and secure communication between BMC peers using SPDM (Security Protocol and Data Model) attestation and SSL/TLS encrypted connections.
+The BMC Pairing Manager Daemon (`bmc-pairing-manager`) is a secure BMC (Baseboard Management Controller) pairing service that facilitates mutual authentication and secure communication between BMC peers using SPDM (Security Protocol and Data Model) attestation and SSL/TLS encrypted connections.
 
 ## Architecture Components
 
 ### Core Components
 
-1. **ProvisioningController**
-   - Central orchestrator managing provisioning state
-   - Exposes D-Bus interface for external control
-   - Tracks peer connection status and provisioning state
-   - Coordinates between SPDM attestation and secure connections
+1. **BmcPairingManagerObject**
+   - D-Bus object implementing the Provisioning interface for BMC pairing management
+   - Manages provisioning state through PicController integration
+   - Tracks bidirectional peer connection status (incoming/outgoing)
+   - Provides provisionPeer() method to initiate peer provisioning via D-Bus
+   - Exposes provisioned and peerConnected properties for monitoring pairing state
+   - Maintains connection state for both incoming (server) and outgoing (client) connections
+   - Determines highest connection state across both directions for unified status reporting
 
 2. **BmcResponder**
    - SSL/TLS server accepting incoming connections from peer BMCs
-   - Handles secure communication after successful provisioning
+   - Handles secure communication after successful pairing
    - Monitors connection health with keep-alive mechanism
-   - Dynamically recreates SSL context after SPDM provisioning
+   - Dynamically recreates SSL context after SPDM pairing
 
 3. **TcpClient**
    - SSL/TLS client for initiating connections to peer BMCs
@@ -58,8 +61,8 @@ The Provisioning Daemon (`provisioningd`) is a secure BMC (Baseboard Management 
 
 ```mermaid
 graph TB
-    subgraph "Provisioning Daemon"
-        PC[ProvisioningController]
+    subgraph "BMC Pairing Manager Daemon"
+        PC[BmcPairingManagerObject]
         BR[BmcResponder]
         TC[TcpClient]
         CM[Certificate Manager]
@@ -79,7 +82,7 @@ graph TB
     end
     
     subgraph "Peer BMC"
-        PEER[Peer BMC Provisioning Service]
+        PEER[Peer BMC Pairing Manager Service]
     end
     
     PC --> BR
@@ -109,7 +112,7 @@ graph TB
 sequenceDiagram
     participant Client
     participant Main
-    participant PC as ProvisioningController
+    participant PC as BmcPairingManagerObject
     participant LLDP as LLDP Watcher
     participant SPDM as SPDM Service
     participant TC as TcpClient
@@ -119,11 +122,11 @@ sequenceDiagram
     Main->>PC: Initialize
     Main->>BR: Start Server (port 8090)
 
-    alt Provision
-        Client->>PC: Trigger provisionPeer()
+    alt Pair
+        Client->>PC: Trigger pairPeer()
         PC->>SPDM: Start attestation
         SPDM-->>Client: Attestation signal (success)
-        Peer-->>PC: Update provisioned state
+        Peer-->>PC: Update paired state
         Main->>BR: Recreate SSL context
         Main->>TC: Connect to peer
         TC->>Peer: SSL handshake
@@ -164,14 +167,14 @@ sequenceDiagram
    
 ```
 
-## Provisioning Flow
+## Pairing Flow
 
 ```mermaid
 stateDiagram-v2
     [*] --> NotDetermined: Start Service
-    NotDetermined --> Attesting: Provision Peer
-    Attesting --> Provisioned: Attestation Success
-    Provisioned --> InProgress: Try Connecting  
+    NotDetermined --> Attesting: Pair Peer
+    Attesting --> Paired: Attestation Success
+    Paired --> InProgress: Try Connecting
     InProgress --> Connected: Connection Success
     InProgress --> NotConnected: Connection Failed
     Connected --> NotConnected: Connection Lost
@@ -236,8 +239,8 @@ graph LR
 - Connection state tracking
 
 ### 4. D-Bus Interface
-- Exposes provisioning status via D-Bus
-- Allows external control of provisioning process
+- Exposes pairing status via D-Bus
+- Allows external control of pairing process
 - Property change notifications
 - Signal-based event propagation
 
@@ -249,7 +252,7 @@ graph LR
 
 ## Configuration
 
-The daemon reads configuration from `/var/provisioning/provisioning.conf`:
+The daemon reads configuration from `/var/bmc-pairing-manager/bmc-pairing-manager.conf`:
 
 ```json
 {
@@ -270,44 +273,44 @@ The daemon reads configuration from `/var/provisioning/provisioning.conf`:
 ## D-Bus Interface
 
 ### Service Name
-`xyz.openbmc_project.Provisioning`
+`xyz.openbmc_project.BmcPairingManager`
 
 ### Object Path
-`/xyz/openbmc_project/Provisioning`
+`/xyz/openbmc_project/BmcPairingManager`
 
 ### Interface
-`xyz.openbmc_project.Provisioning.Provisioning`
+`xyz.openbmc_project.BmcPairingManager.BmcPairingManager`
 
 ### Methods
-- **provisionPeer(deviceId: string)**: Initiates provisioning for a specific device
+- **provisionPeer(deviceId: string)**: Initiates pairing for a specific device
 
 ### Properties
 - **peerConnected**: Connection status (NotDetermined, InProgress, Connected, NotConnected)
-- **provisioned**: Boolean indicating if provisioning is complete
+- **provisioned**: Boolean indicating if pairing is complete
 ## Usage Examples
 
-### Provisioning Commands
+### Pairing Commands
 
-To provision self:
+To pair self:
 ```bash
-busctl call xyz.openbmc_project.Provisioning /xyz/openbmc_project/Provisioning xyz.openbmc_project.Provisioning.Provisioning ProvisionPeer s self
+busctl call xyz.openbmc_project.BmcPairingManager /xyz/openbmc_project/BmcPairingManager xyz.openbmc_project.BmcPairingManager.BmcPairingManager ProvisionPeer s self
 ```
 
-To provision a peer (e.g., skiboards):
+To pair a peer (e.g., skiboards):
 ```bash
-busctl call xyz.openbmc_project.Provisioning /xyz/openbmc_project/Provisioning xyz.openbmc_project.Provisioning.Provisioning ProvisionPeer s skiboards
+busctl call xyz.openbmc_project.BmcPairingManager /xyz/openbmc_project/BmcPairingManager xyz.openbmc_project.BmcPairingManager.BmcPairingManager ProvisionPeer s skiboards
 ```
 
-### Checking Provisioning Status
+### Checking Pairing Status
 
-To check if provisioned:
+To check if paired:
 ```bash
-busctl get-property xyz.openbmc_project.Provisioning /xyz/openbmc_project/Provisioning xyz.openbmc_project.Provisioning.Provisioning provisioned
+busctl get-property xyz.openbmc_project.BmcPairingManager /xyz/openbmc_project/BmcPairingManager xyz.openbmc_project.BmcPairingManager.BmcPairingManager provisioned
 ```
 
 To check peer connection status:
 ```bash
-busctl get-property xyz.openbmc_project.Provisioning /xyz/openbmc_project/Provisioning xyz.openbmc_project.Provisioning.Provisioning peerConnected
+busctl get-property xyz.openbmc_project.BmcPairingManager /xyz/openbmc_project/BmcPairingManager xyz.openbmc_project.BmcPairingManager.BmcPairingManager peerConnected
 ```
 
 
@@ -320,7 +323,7 @@ busctl get-property xyz.openbmc_project.Provisioning /xyz/openbmc_project/Provis
 
 ### Attestation Errors
 - Failed attestation prevents connection establishment
-- Timeout during attestation marks peer as not provisioned
+- Timeout during attestation marks peer as not paired
 - D-Bus communication errors are logged and handled gracefully
 
 ## Dependencies
