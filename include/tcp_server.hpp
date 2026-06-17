@@ -1,4 +1,5 @@
 #pragma once
+#include "logger.hpp"
 #include "make_awaitable.hpp"
 #include "socket_streams.hpp"
 
@@ -40,9 +41,16 @@ class TcpServer
     boost::asio::awaitable<void> handle_client(
         std::shared_ptr<boost::asio::ssl::stream<Socket>> socket)
     {
-        // Perform SSL handshake
-        co_await socket->async_handshake(boost::asio::ssl::stream_base::server,
-                                         boost::asio::use_awaitable);
+        // Perform SSL handshake with error handling
+        boost::system::error_code ec;
+        co_await socket->async_handshake(
+            boost::asio::ssl::stream_base::server,
+            boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+        if (ec)
+        {
+            LOG_ERROR("Ssl handshake error {}", ec.message());
+            co_return;
+        }
         if constexpr (requires { router(socket); })
         {
             co_await router(socket);
