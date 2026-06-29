@@ -8,6 +8,42 @@ struct BmcResponder
 {
     // Maximum allowed message size to prevent buffer overflow
     static constexpr size_t MAX_MESSAGE_SIZE = 1024;
+
+    // Helper function to detect and log connection errors
+    static bool isConnectionError(const boost::system::error_code& ec)
+    {
+        if (!ec)
+        {
+            return false; // No error
+        }
+
+        if (ec == boost::asio::error::operation_aborted)
+        {
+            LOG_DEBUG("Operation timed out");
+            return false; // Timeout, can continue
+        }
+
+        // Detect abrupt disconnection scenarios
+        if (ec == boost::asio::error::eof)
+        {
+            LOG_INFO("Peer closed connection gracefully");
+        }
+        else if (ec == boost::asio::error::connection_reset)
+        {
+            LOG_WARNING("Peer connection reset (abrupt termination)");
+        }
+        else if (ec == boost::asio::error::broken_pipe)
+        {
+            LOG_WARNING("Broken pipe - peer disconnected abruptly");
+        }
+        else
+        {
+            LOG_ERROR("Connection error: {}", ec.message());
+        }
+
+        return true; // Fatal error, should disconnect
+    }
+
     ssl::context ssl;
     TcpStreamType acceptor;
     TcpServer<TcpStreamType, BmcResponder> server;
@@ -32,14 +68,13 @@ struct BmcResponder
             std::array<char, MAX_MESSAGE_SIZE> data;
             boost::system::error_code ec;
             size_t bytes{0};
-            std::tie(ec, bytes) = co_await streamer.read(net::buffer(data));
-            if (ec)
+            std::tie(ec, bytes) =
+                co_await streamer.read(net::buffer(data), true);
+
+            // Check for connection errors (timeouts will continue, fatal errors
+            // will disconnect)
+            if (isConnectionError(ec))
             {
-                if (ec == boost::asio::error::operation_aborted)
-                {
-                    continue;
-                }
-                LOG_ERROR("Error reading: {}", ec.message());
                 if (watcherCallback)
                 {
                     watcherCallback(false);
@@ -63,10 +98,15 @@ struct BmcResponder
             LOG_INFO("Received: {}", std::string(data.data(), bytes));
             std::string response = "alive";
             std::tie(ec, bytes) =
-                co_await streamer.write(net::buffer(response));
-            if (ec)
+                co_await streamer.write(net::buffer(response), true);
+
+            // Check for fatal connection errors during write
+            if (isConnectionError(ec))
             {
-                watcherCallback(false);
+                if (watcherCallback)
+                {
+                    watcherCallback(false);
+                }
                 co_return;
             }
         }

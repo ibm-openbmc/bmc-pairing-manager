@@ -12,61 +12,11 @@
 #include <string>
 #include <utility>
 
-#ifdef __linux__
-#include <netinet/tcp.h>
-#include <sys/socket.h>
-#endif
 namespace NSNAME
 {
 namespace net = boost::asio;
 namespace ssl = boost::asio::ssl;
 using tcp = boost::asio::ip::tcp;
-
-template <typename Socket>
-inline void configureSocketKeepalive(Socket& socket)
-{
-    boost::system::error_code ec;
-
-    // Enable TCP keepalive to detect dead connections
-    boost::asio::socket_base::keep_alive keepalive_option(true);
-    socket.set_option(keepalive_option, ec);
-    if (ec)
-    {
-        LOG_ERROR("Failed to set keepalive option: {}", ec.message());
-        return;
-    }
-
-#ifdef __linux__
-    // Configure aggressive TCP keepalive parameters for faster dead connection
-    // detection
-    int native_fd = socket.native_handle();
-
-    // Start sending keepalive probes after 10 seconds of idle time
-    int keepalive_time = 10;
-    if (setsockopt(native_fd, IPPROTO_TCP, TCP_KEEPIDLE, &keepalive_time,
-                   sizeof(keepalive_time)) < 0)
-    {
-        LOG_ERROR("Failed to set TCP_KEEPIDLE");
-    }
-
-    // Send keepalive probes every 5 seconds
-    int keepalive_interval = 5;
-    if (setsockopt(native_fd, IPPROTO_TCP, TCP_KEEPINTVL, &keepalive_interval,
-                   sizeof(keepalive_interval)) < 0)
-    {
-        LOG_ERROR("Failed to set TCP_KEEPINTVL");
-    }
-
-    // Close connection after 3 failed probes (total ~25 seconds to detect dead
-    // connection)
-    int keepalive_count = 3;
-    if (setsockopt(native_fd, IPPROTO_TCP, TCP_KEEPCNT, &keepalive_count,
-                   sizeof(keepalive_count)) < 0)
-    {
-        LOG_ERROR("Failed to set TCP_KEEPCNT");
-    }
-#endif
-}
 
 inline AwaitableResult<net::ip::tcp::resolver::results_type> awaitable_resolve(
     typename net::ip::tcp::resolver& resolver, const std::string& host,
