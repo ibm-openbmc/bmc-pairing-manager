@@ -7,15 +7,65 @@
 #include <boost/asio/spawn.hpp>
 #include <boost/asio/streambuf.hpp>
 
+#ifdef __linux__
+#include <netinet/tcp.h>
+#include <sys/socket.h>
+#endif
+
 using namespace std::chrono_literals;
 namespace NSNAME
 {
+// Configure TCP keepalive to detect dead connections quickly.
+// Enables keepalive and, on Linux, sets aggressive probe parameters:
+//   idle time = 10s, probe interval = 5s, probe count = 3 (~25s total).
+template <typename Socket>
+inline void configureSocketKeepalive(Socket& socket)
+{
+    boost::system::error_code ec;
+    socket.set_option(boost::asio::socket_base::keep_alive(true), ec);
+    if (ec)
+    {
+        LOG_ERROR("Failed to set keepalive option: {}", ec.message());
+        return;
+    }
+    LOG_DEBUG("TCP keep-alive enabled");
+
+#ifdef __linux__
+    int native_fd = socket.native_handle();
+
+    // Start sending keepalive probes after 10 seconds of idle time
+    int keepalive_time = 10;
+    if (setsockopt(native_fd, IPPROTO_TCP, TCP_KEEPIDLE, &keepalive_time,
+                   sizeof(keepalive_time)) < 0)
+    {
+        LOG_ERROR("Failed to set TCP_KEEPIDLE");
+    }
+
+    // Send keepalive probes every 5 seconds
+    int keepalive_interval = 5;
+    if (setsockopt(native_fd, IPPROTO_TCP, TCP_KEEPINTVL, &keepalive_interval,
+                   sizeof(keepalive_interval)) < 0)
+    {
+        LOG_ERROR("Failed to set TCP_KEEPINTVL");
+    }
+
+    // Close connection after 3 failed probes (~25 seconds total)
+    int keepalive_count = 3;
+    if (setsockopt(native_fd, IPPROTO_TCP, TCP_KEEPCNT, &keepalive_count,
+                   sizeof(keepalive_count)) < 0)
+    {
+        LOG_ERROR("Failed to set TCP_KEEPCNT");
+    }
+#endif
+}
+
 struct TcpStreamType
 {
     using stream_type = boost::asio::ssl::stream<tcp::socket>;
     tcp::acceptor acceptor_;
     net::any_io_executor context;
     boost::asio::ssl::context& ssl_context_;
+
     TcpStreamType(net::any_io_executor io_context, short port,
                   boost::asio::ssl::context& ssl_context) :
         acceptor_(io_context, tcp::endpoint(tcp::v4(), port)),
@@ -37,6 +87,8 @@ struct TcpStreamType
                                    boost::system::error_code ec) {
                                    if (!ec)
                                    {
+                                       configureSocketKeepalive(
+                                           socket->lowest_layer());
                                        handler(std::move(socket));
                                    }
                                });
