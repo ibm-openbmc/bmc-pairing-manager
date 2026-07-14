@@ -52,14 +52,36 @@ struct BmcPairingManagerObject : Ifaces
     BmcPairingManagerObject(net::io_context& ctx,
                             std::shared_ptr<sdbusplus::asio::connection> conn) :
         Ifaces(*conn, objPath, Ifaces::action::defer_emit), ioContext(ctx),
-        conn(conn)
+        conn(conn), picController() // Use default I2C parameters
+    {
+        // Initialize PicController asynchronously
+        net::co_spawn(ctx, initializePicController(), net::detached);
+    }
 
-    {}
+    /**
+     * @brief Initialize PicController and load state from I2C
+     */
+    net::awaitable<void> initializePicController()
+    {
+        bool success = co_await picController.initialize();
+        if (success)
+        {
+            LOG_INFO("PicController initialized successfully");
+            // Update D-Bus property with loaded state
+            Ifaces::provisioned(picController.getState(), false);
+        }
+        else
+        {
+            LOG_WARNING(
+                "PicController initialization failed, using default state");
+        }
+    }
     void provisionPeer(std::string deviceId) override
     {
         if (deviceId == "self")
         {
-            setProvisioned(true);
+            // Spawn async task to set provisioned state
+            net::co_spawn(ioContext, setProvisioned(true), net::detached);
             return;
         }
         if (!provisioned())
@@ -80,6 +102,10 @@ struct BmcPairingManagerObject : Ifaces
                   convertPeerConnectionStatusToString(state));
         return state;
     }
+    PeerConnectionStatus peerConnected(ConnectionDirection dir)
+    {
+        return trustedConnectionState[static_cast<size_t>(dir)];
+    }
     bool provisioned() const override
     {
         return picController.getState();
@@ -91,11 +117,20 @@ struct BmcPairingManagerObject : Ifaces
         trustedConnectionState[static_cast<size_t>(dir)] = value;
         Ifaces::peerConnected(getHighestTrustedConnectionState(), false);
     }
-    void setProvisioned(bool value)
+    net::awaitable<void> setProvisioned(bool value)
     {
         LOG_DEBUG("Setting Provisioned state {}", value);
-        picController.setState(value);
-        Ifaces::provisioned(value, false);
+        bool success = co_await picController.setState(value);
+        if (success)
+        {
+            LOG_INFO("Successfully set provisioned state to {} via I2C", value);
+        }
+        else
+        {
+            LOG_WARNING("Failed to set provisioned state to {} via I2C", value);
+        }
+        // Update D-Bus property with actual state from picController
+        Ifaces::provisioned(picController.getState(), false);
     }
 
   private:
