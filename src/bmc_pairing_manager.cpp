@@ -450,12 +450,11 @@ void setupWatchers(net::io_context& io_context,
                    std::shared_ptr<BmcResponder>& bmcResponder)
 {
     // Attestation state watcher
-    DbusPropertyWatcher<bool>::watch(
+    DbusSignalWatcher<bool>::watch(
         io_context, conn,
         std::bind_front(onSpdmStateChange, std::ref(io_context), config.port,
                         std::ref(controller), std::ref(bmcResponder)),
-        std::format(ATTESTATION_RES_PATH, config.port), ATTESTATION_RES_INTF,
-        ATTESTATION_PROP);
+        ATTESTATION_RES_INTF, ATTESTATION_RES_SIGNAL);
 
     // Neighbour discovery
     auto neighbourHandler =
