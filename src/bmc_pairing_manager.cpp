@@ -238,7 +238,8 @@ net::awaitable<void> onNeighbourFound(
     short rport, const std::string& address, const std::string& name)
 {
     LOG_INFO("LLDP Neighbour IP found: {} Name: {}", address, name);
-    if (controller.peerConnected() ==
+    if (controller.peerConnected(
+            BmcPairingManagerObject::ConnectionDirection::outgoing) ==
         ProvisioningIface::PeerConnectionStatus::Connected)
     {
         LOG_INFO("Peer already connected, skipping connection attempt");
@@ -258,10 +259,18 @@ net::awaitable<void> onSpdmStateChange(
     {
         co_return;
     }
-    controller.setProvisioned(*val);
-    if (*val && !bmcResponder)
+    co_await controller.setProvisioned(*val);
+    if (*val)
     {
         LOG_INFO("SPDM provisioning completed successfully");
+
+        // Reset existing responder to close any active connections gracefully
+        if (bmcResponder)
+        {
+            LOG_INFO("Closing existing BMC responder before recreating");
+            bmcResponder.reset();
+        }
+
         auto sslContext = getServerContext();
         if (!sslContext)
         {
@@ -274,6 +283,7 @@ net::awaitable<void> onSpdmStateChange(
     }
     LOG_INFO("SPDM provisioning completed with failed status");
 }
+
 net::awaitable<void> startSpdm(
     std::shared_ptr<sdbusplus::asio::connection> conn, net::io_context& ioc,
     short port, const std::string& iface, BmcPairingManagerObject& controller,
@@ -325,13 +335,148 @@ net::awaitable<void> startSpdm(
 nlohmann::json loadConfig(const std::string& configPath)
 {
     std::ifstream confFile(configPath);
+    nlohmann::json config;
+
     if (confFile)
     {
-        return nlohmann::json::parse(confFile);
+        try
+        {
+            config = nlohmann::json::parse(confFile);
+        }
+        catch (const nlohmann::json::parse_error& e)
+        {
+            LOG_ERROR("JSON parse error in config file: {}", e.what());
+            throw std::runtime_error("Invalid JSON configuration file");
+        }
     }
-    return nlohmann::json{
-        {"port", 8090}, {"cert_root", "/"}, {"interface_id", "eth2"}};
+    else
+    {
+        config = nlohmann::json{{"port", 8090}, {"interface_id", "eth2"}};
+    }
+
+    // Validate port number (1-65535)
+    if (config.contains("port"))
+    {
+        int port = config["port"];
+        if (port < 1 || port > 65535)
+        {
+            LOG_ERROR("Invalid port number: {}. Must be between 1-65535", port);
+            throw std::runtime_error("Invalid port number in configuration");
+        }
+    }
+
+    return config;
 }
+
+struct ApplicationConfig
+{
+    short port;
+    std::string interface_id;
+    int retry_count;
+    int retry_timer;
+};
+
+ApplicationConfig loadAndValidateConfig(const std::string& configPath)
+{
+    auto confJson = loadConfig(configPath);
+    ApplicationConfig config{
+        .port = static_cast<short>(confJson.value("port", 8090)),
+        .interface_id = confJson.value("interface_id", std::string{"eth2"}),
+        .retry_count = confJson.value("retry_count", 3),
+        .retry_timer = confJson.value("retry_timer", 30)};
+
+    gRetryCount = config.retry_count;
+    gRetryTime = config.retry_timer;
+
+    return config;
+}
+
+std::shared_ptr<BmcResponder> initializeResponder(
+    net::io_context& io_context, short port,
+    BmcPairingManagerObject& controller)
+{
+    auto sslCtx = getServerContext();
+    if (!sslCtx)
+    {
+        LOG_WARNING("SSL context unavailable, responder not initialized");
+        return nullptr;
+    }
+
+    return makeBmcResponder(io_context, std::move(*sslCtx), port, controller);
+}
+
+std::function<void(const std::string&)> createProvisionHandler(
+    net::io_context& io_context,
+    std::shared_ptr<sdbusplus::asio::connection> conn, short port,
+    const std::string& iface, BmcPairingManagerObject& controller,
+    std::shared_ptr<BmcResponder>& bmcResponder)
+{
+    return [&io_context, conn, port, &iface, &controller,
+            &bmcResponder](const std::string& deviceName) {
+        LOG_INFO("Provisioning started");
+        net::co_spawn(io_context,
+                      std::bind_front(startSpdm, conn, std::ref(io_context),
+                                      port, iface, std::ref(controller),
+                                      std::ref(bmcResponder), deviceName),
+                      net::detached);
+    };
+}
+
+auto createNeighbourHandler(net::io_context& io_context,
+                            BmcPairingManagerObject& controller, short port)
+{
+    return [&io_context, &controller,
+            port](const std::string& address,
+                  const std::string& name) -> net::awaitable<void> {
+        co_await onNeighbourFound(io_context, controller, port, address, name);
+    };
+}
+
+auto createFallbackHandler(net::io_context& io_context,
+                           std::shared_ptr<sdbusplus::asio::connection> conn,
+                           const std::string& iface, auto neighbourHandler)
+{
+    return [&io_context, conn, &iface, neighbourHandler]() {
+        net::co_spawn(io_context,
+                      makeNeighbourUpdateHandler(conn, iface, neighbourHandler),
+                      net::detached);
+    };
+}
+
+void setupWatchers(net::io_context& io_context,
+                   std::shared_ptr<sdbusplus::asio::connection> conn,
+                   const ApplicationConfig& config,
+                   BmcPairingManagerObject& controller,
+                   std::shared_ptr<BmcResponder>& bmcResponder)
+{
+    // Attestation state watcher
+    DbusPropertyWatcher<bool>::watch(
+        io_context, conn,
+        std::bind_front(onSpdmStateChange, std::ref(io_context), config.port,
+                        std::ref(controller), std::ref(bmcResponder)),
+        std::format(ATTESTATION_RES_PATH, config.port), ATTESTATION_RES_INTF,
+        ATTESTATION_PROP);
+
+    // Neighbour discovery
+    auto neighbourHandler =
+        createNeighbourHandler(io_context, controller, config.port);
+    auto fallbackHandler = createFallbackHandler(
+        io_context, conn, config.interface_id, neighbourHandler);
+
+    DbusSignalWatcher<sdbusplus::message_t>::watch(
+        io_context, conn,
+        makeNeighbourDiscoveryHandler(neighbourHandler,
+                                      std::move(fallbackHandler)),
+        sdbusplus::bus::match::rules::interfacesAddedAtPath(
+            std::format(LLDP_REC_PATH, config.interface_id)));
+
+    // Initial neighbour update
+    net::co_spawn(
+        io_context,
+        makeNeighbourUpdateHandler(conn, config.interface_id, neighbourHandler),
+        net::detached);
+}
+
 int main(int argc, const char* argv[])
 {
     auto [conf] = getArgs(parseCommandline(argc, argv), "--conf,-c");
@@ -349,13 +494,7 @@ int main(int argc, const char* argv[])
         Tpm2::getInstance(); // Initialize TPM2 provider
         net::io_context io_context;
 
-        auto confJson = loadConfig(conf.value().data());
-        auto port = confJson.value("port", 8090);
-        cert_root = confJson.value("cert_root", std::string{"/"});
-        auto iface = confJson.value("interface_id", std::string{"eth2"});
-
-        gRetryCount = confJson.value("retry_count", 3);
-        gRetryTime = confJson.value("retry_timer", 30);
+        auto config = loadAndValidateConfig(conf.value().data());
 
         auto conn = std::make_shared<sdbusplus::asio::connection>(io_context);
         BmcPairingManagerObject controller(io_context, conn);
@@ -367,53 +506,15 @@ int main(int argc, const char* argv[])
         // Create debug controller for runtime log level control
         DebugController debugController(conn, objServer);
 
-        std::shared_ptr<BmcResponder> bmcResponder;
-        auto sslCtx = getServerContext();
-        if (sslCtx)
-        {
-            bmcResponder = makeBmcResponder(io_context, std::move(*sslCtx),
-                                            port, controller);
-        }
-        controller.setProvisionHandler([&](const std::string& deviceName) {
-            LOG_INFO("Provisioning started");
-            net::co_spawn(io_context,
-                          std::bind_front(startSpdm, conn, std::ref(io_context),
-                                          port, iface, std::ref(controller),
-                                          std::ref(bmcResponder), deviceName),
-                          net::detached);
-        });
+        auto bmcResponder =
+            initializeResponder(io_context, config.port, controller);
 
-        DbusSignalWatcher<bool>::watch(
-            io_context, conn,
-            std::bind_front(onSpdmStateChange, std::ref(io_context), port,
-                            std::ref(controller), std::ref(bmcResponder)),
-            ATTESTATION_RES_INTF, ATTESTATION_RES_SIGNAL);
+        controller.setProvisionHandler(createProvisionHandler(
+            io_context, conn, config.port, config.interface_id, controller,
+            bmcResponder));
 
-        auto neighbourHandler =
-            [&io_context, &controller,
-             port](const std::string& address,
-                   const std::string& name) -> net::awaitable<void> {
-            co_await onNeighbourFound(io_context, controller, port, address,
-                                      name);
-        };
+        setupWatchers(io_context, conn, config, controller, bmcResponder);
 
-        auto fallbackHandler = [&io_context, conn, iface, neighbourHandler]() {
-            net::co_spawn(
-                io_context,
-                makeNeighbourUpdateHandler(conn, iface, neighbourHandler),
-                net::detached);
-        };
-
-        DbusSignalWatcher<sdbusplus::message_t>::watch(
-            io_context, conn,
-            makeNeighbourDiscoveryHandler(neighbourHandler,
-                                          std::move(fallbackHandler)),
-            sdbusplus::bus::match::rules::interfacesAddedAtPath(
-                std::format(LLDP_REC_PATH, iface)));
-
-        net::co_spawn(io_context,
-                      makeNeighbourUpdateHandler(conn, iface, neighbourHandler),
-                      net::detached);
         io_context.run();
     }
     catch (const std::exception& e)
@@ -421,4 +522,6 @@ int main(int argc, const char* argv[])
         LOG_ERROR("Exception: {}", e.what());
         return 1;
     }
+
+    return 0;
 }
