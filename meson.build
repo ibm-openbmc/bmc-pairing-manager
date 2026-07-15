@@ -4,6 +4,33 @@ openssl_dep = dependency('openssl', version: '>= 3.0', required: true)
 sdeventplus_dep = dependency('sdeventplus')
 sdbusplus_dep =dependency('sdbusplus')
 dbus_interfaces_dep =dependency('phosphor-dbus-interfaces')
+
+# ---------------------------------------------------------------------------
+# sdbusplus version detection
+#
+# New sdbusplus (post-2024) promotes object_path and match to the top-level
+# sdbusplus namespace.  Older versions keep them under sdbusplus::message and
+# sdbusplus::bus::match respectively.
+#
+# We probe for sdbusplus::object_path (the new-API sentinel).  When found we
+# define SDBUSPLUS_NEW_API so the compat shim in sdbus_calls.hpp resolves to
+# the correct types automatically.
+# ---------------------------------------------------------------------------
+cxx = meson.get_compiler('cpp')
+# Probe for sdbusplus::match at the top-level namespace.
+# This type only exists in the new sdbusplus API (post-2024).
+# Older releases only have sdbusplus::bus::match::match.
+if cxx.has_type(
+    'sdbusplus::match',
+    prefix: '#include <sdbusplus/bus/match.hpp>',
+    dependencies: sdbusplus_dep,
+)
+    add_project_arguments('-DSDBUSPLUS_NEW_API', language: 'cpp')
+    message('sdbusplus: new API detected (sdbusplus::match / sdbusplus::object_path)')
+else
+    message('sdbusplus: old API detected (sdbusplus::bus::match::match / sdbusplus::message::object_path)')
+endif
+
 bmc_pairing_manager_dep = declare_dependency(
     dependencies:[sdbusplus_dep,sdeventplus_dep,openssl_dep,boost_dep,dbus_interfaces_dep],
     include_directories:['include']
