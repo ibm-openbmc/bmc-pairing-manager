@@ -40,7 +40,7 @@ struct BmcPairingManagerObject : Ifaces
     PROVISIONING_HANDLER provisionHandler;
 
     static constexpr auto busName = "xyz.openbmc_project.BmcPairingManager";
-    static constexpr auto objPath = "/xyz/openbmc_project/BmcPairingManager";
+    static constexpr auto objPath = Provisioning::instance_path;
     static constexpr auto interface = Provisioning::interface;
 
     BmcPairingManagerObject() = delete;

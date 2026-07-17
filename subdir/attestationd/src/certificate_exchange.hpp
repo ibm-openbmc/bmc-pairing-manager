@@ -246,7 +246,7 @@ struct CertificateExchanger
 
     static bool processInterMediateCA(
         const openssl_ptr<EVP_PKEY, EVP_PKEY_free>& pkey,
-        const openssl_ptr<X509, X509_free>& ca)
+        const openssl_ptr<X509, X509_free>& ca, const std::string& hostName)
     {
         if (!pkey)
         {
@@ -267,8 +267,8 @@ struct CertificateExchanger
                         ENTITY_SERVER_COMBINED_PATH()}};
         auto caname = openssl_ptr<X509_NAME, X509_NAME_free>(
             X509_NAME_dup(X509_get_subject_name(ca.get())), X509_NAME_free);
-        auto servCert = createAndSaveEntityCertificate<2>(
-            pkey, ca, "BMC Entity", entity_data, 1);
+        auto servCert = createAndSaveEntityCertificate<2>(pkey, ca, hostName,
+                                                          entity_data, 1);
         if (!servCert)
         {
             LOG_ERROR("Failed to create server entity certificate");
@@ -320,7 +320,7 @@ struct CertificateExchanger
             trustStoreDir);
         return true;
     }
-    static X509Ptr createCertificates()
+    static X509Ptr createCertificates(const std::string& hostName = {})
     {
         if (fs::exists(SELF_CA_PATH()))
         {
@@ -332,7 +332,7 @@ struct CertificateExchanger
             LOG_ERROR("Failed to create CA certificate and private key");
             return makeX509Ptr(nullptr);
         }
-        if (!processInterMediateCA(ca_pkey, ca_cert))
+        if (!processInterMediateCA(ca_pkey, ca_cert, hostName))
         {
             LOG_ERROR("Failed to process intermediate CA");
             return makeX509Ptr(nullptr);
