@@ -234,7 +234,7 @@ int main(int argc, const char* argv[])
             LOG_ERROR("Failed to load signing certificate from {}", signcert);
             return 1;
         }
-        CertificateExchanger::createCertificates();
+        CertificateExchanger::createCertificates("bmc.peer");
         AttestationHandler attestationHandler(
             MeasurementTaker(loadPrivateKey(signprivkey)),
             MeasurementVerifier(getPublicKeyFromCert(verifyCert)), eventQueue,

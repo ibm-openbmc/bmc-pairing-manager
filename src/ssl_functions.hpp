@@ -2,28 +2,29 @@
 #include <boost/asio.hpp>
 
 #include <filesystem>
-static std::string cert_root = "/tmp/1222";
+#include <format>
+#include <string>
 using namespace reactor;
 namespace fs = std::filesystem;
 inline std::string trustStorePath()
 {
-    return std::format("{}etc/ssl/certs/authority", cert_root);
+    return "/etc/ssl/certs/authority";
 }
 inline std::string ENTITY_CLIENT_CERT_PATH()
 {
-    return std::format("{}etc/ssl/certs/https/client_cert.pem", cert_root);
+    return "/etc/ssl/certs/https/client_cert.pem";
 }
 inline std::string CLIENT_PKEY_PATH()
 {
-    return std::format("{}etc/ssl/private/client_pkey.pem", cert_root);
+    return "/etc/ssl/private/client_pkey.pem";
 }
 inline std::string ENTITY_SERVER_CERT_PATH()
 {
-    return std::format("{}etc/ssl/certs/https/server_cert.pem", cert_root);
+    return "/etc/ssl/certs/https/server_cert.pem";
 }
 inline std::string SERVER_PKEY_PATH()
 {
-    return std::format("{}etc/ssl/private/server_pkey.pem", cert_root);
+    return "/etc/ssl/private/server_pkey.pem";
 }
 std::optional<ssl::context> getClientContext()
 {
