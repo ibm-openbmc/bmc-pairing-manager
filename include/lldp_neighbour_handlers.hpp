@@ -46,7 +46,7 @@ auto makeNeighbourDiscoveryHandler(Handler handler,
             co_return;
         }
         reactor::InterfaceMap interfaces;
-        sdbusplus::message::object_path objPath;
+        sdbuscompat::object_path objPath;
         m->read(objPath, interfaces);
         auto it = interfaces.find(LLDP_INTF);
         if (it == interfaces.end())

@@ -21,7 +21,7 @@ struct DbusWatcher : std::enable_shared_from_this<Derived>
         std::function<void(boost::system::error_code, PropType)>;
     PROPERTY_HANDLER propHandler;
     std::shared_ptr<sdbusplus::asio::connection> conn;
-    std::optional<sdbusplus ::bus::match::match> match;
+    std::optional<sdbuscompat::match_t> match;
 
     DbusWatcher() = delete;
     DbusWatcher(const DbusWatcher&) = delete;

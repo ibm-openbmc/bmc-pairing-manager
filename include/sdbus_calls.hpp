@@ -53,6 +53,31 @@
 #include <sdbusplus/exception.hpp>
 #include <sdbusplus/server.hpp>
 #include <sdbusplus/timer.hpp>
+
+// ---------------------------------------------------------------------------
+// sdbusplus version compatibility shims
+//
+// Older sdbusplus exposed:
+//   sdbusplus::message::object_path
+//   sdbusplus::bus::match::match
+//
+// Newer sdbusplus (post-2024) moved these to the top-level namespace:
+//   sdbusplus::object_path
+//   sdbusplus::match
+//
+// meson.build probes for the new API and sets -DSDBUSPLUS_NEW_API when found.
+// ---------------------------------------------------------------------------
+namespace sdbuscompat
+{
+#ifdef SDBUSPLUS_NEW_API
+using object_path = ::sdbusplus::object_path;
+using match_t = ::sdbusplus::match;
+#else
+using object_path = ::sdbusplus::message::object_path;
+using match_t = ::sdbusplus::bus::match::match;
+#endif
+} // namespace sdbuscompat
+
 namespace NSNAME
 {
 // Common D-Bus service and interface names
@@ -404,8 +429,8 @@ inline AwaitableResult<DictType> getSubTreePaths(
 template <typename DictType>
 inline AwaitableResult<DictType> getAssociatedSubTree(
     sdbusplus::asio::connection& bus,
-    const sdbusplus::message::object_path& associatedPath,
-    const sdbusplus::message::object_path& path, int depth,
+    const sdbuscompat::object_path& associatedPath,
+    const sdbuscompat::object_path& path, int depth,
     const std::vector<std::string>& interfaces = {})
 {
     return callObjectMapperMethod<DictType>(
@@ -429,8 +454,8 @@ inline AwaitableResult<DictType> getAssociatedSubTree(
 template <typename DictType>
 inline AwaitableResult<DictType> getAssociatedSubTreePaths(
     sdbusplus::asio::connection& bus,
-    const sdbusplus::message::object_path& associatedPath,
-    const sdbusplus::message::object_path& path, int32_t depth,
+    const sdbuscompat::object_path& associatedPath,
+    const sdbuscompat::object_path& path, int32_t depth,
     const std::vector<std::string>& interfaces = {})
 {
     return callObjectMapperMethod<DictType>(
@@ -548,7 +573,7 @@ inline AwaitableResult<DictType> getAssociationEndPoints(
  *
  * Example:
  * @code
- * using ManagedObjects = std::map<sdbusplus::message::object_path,
+ * using ManagedObjects = std::map<sdbuscompat::object_path,
  * InterfaceMap>; auto [ec, objects] = co_await
  * getManagedObjects<ManagedObjects>( bus,
  * "xyz.openbmc_project.Inventory.Manager",
@@ -558,7 +583,7 @@ inline AwaitableResult<DictType> getAssociationEndPoints(
 template <typename DictType>
 inline AwaitableResult<DictType> getManagedObjects(
     sdbusplus::asio::connection& bus, const std::string& service,
-    const sdbusplus::message::object_path& path)
+    const sdbuscompat::object_path& path)
 {
     co_return co_await awaitable_dbus_method_call<DictType>(
         bus, service, path, dbusObjectManagerInterface, "GetManagedObjects");
@@ -597,7 +622,7 @@ inline AwaitableResult<DictType> getAncestors(
  */
 inline AwaitableResult<std::string> introspect(
     sdbusplus::asio::connection& bus, const std::string& service,
-    const sdbusplus::message::object_path& path)
+    const sdbuscompat::object_path& path)
 {
     co_return co_await awaitable_dbus_method_call<std::string>(
         bus, service, path, dbusIntrospectableInterface, "Introspect");
