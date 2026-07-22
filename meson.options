@@ -6,6 +6,20 @@ option(
 )
 
 option(
+    'lldp_hosts_updater',
+    type: 'boolean',
+    description: 'Build lldp-hosts-updater: watches LLDP for peer IP and writes /etc/hosts',
+    value: false,
+)
+
+option(
+    'lldp_hosts_updater_iface',
+    type: 'string',
+    description: 'Network interface to watch for LLDP neighbours',
+    value: 'eth2',
+)
+
+option(
     'pingtest',
     type: 'boolean',
     description: 'Enables pingtest tool',
