@@ -19,7 +19,9 @@
 
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <memory>
+#include <random>
 #include <string>
 #include <vector>
 namespace NSNAME
@@ -717,7 +719,11 @@ inline openssl_ptr<X509, X509_free> create_certificate(
         return makeX509Ptr(nullptr);
     }
     openssl_ptr<X509, X509_free> cert(X509_new(), X509_free);
-    ASN1_INTEGER_set(X509_get_serialNumber(cert.get()), std::rand());
+    std::random_device rd;
+    std::mt19937_64 gen(rd());
+    std::uniform_int_distribution<uint64_t> dis(
+        1, std::numeric_limits<uint64_t>::max());
+    ASN1_INTEGER_set_uint64(X509_get_serialNumber(cert.get()), dis(gen));
     
     // Set notBefore to Unix epoch (January 1, 1970, 00:00:00 UTC) for maximum validity
     // This allows the certificate to be valid from the earliest possible date
