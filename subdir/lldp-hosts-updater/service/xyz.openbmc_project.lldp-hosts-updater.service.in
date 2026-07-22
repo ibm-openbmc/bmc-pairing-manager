@@ -1,0 +1,12 @@
+[Unit]
+Description=LLDP neighbour /etc/hosts updater
+After=xyz.openbmc_project.LLDP.service
+Wants=xyz.openbmc_project.LLDP.service
+
+[Service]
+ExecStart=/usr/bin/lldp-hosts-updater -i @IFACE@
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
