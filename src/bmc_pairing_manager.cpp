@@ -9,6 +9,8 @@
 #include "tcp_client.hpp"
 #include "tcp_server.hpp"
 
+#include <xyz/openbmc_project/Attestation/MeasurementSet/common.hpp>
+
 #include <unistd.h>
 
 #include <nlohmann/json.hpp>
@@ -293,11 +295,104 @@ net::awaitable<void> startSpdm(
     std::reference_wrapper<std::shared_ptr<BmcResponder>> /*bmcResponder*/,
     std::string deviceName)
 {
+    using MeasurementSetCommon =
+        sdbusplus::common::xyz::openbmc_project::attestation::MeasurementSet;
+
+    // SubTree: objPath → { serviceName → [interfaceNames] }
+    using SubTreeMap =
+        std::map<std::string, std::map<std::string, std::vector<std::string>>>;
+
     try
     {
         // This method would start the SPDM provisioning process.
         // Implementation would depend on the specific requirements.
         LOG_INFO("Starting SPDM pairing");
+
+        // ── Step 1: GetSubTree for MeasurementSet objects ────────────────────
+        // All D-Bus calls below use co_await — no blocking calls.
+        // Use root "/" — ObjectMapper requires the search root to be a parent
+        // of the ObjectManager path (/xyz/openbmc_project/component_integrity).
+        auto [measEc, subtree] = co_await getSubTree<SubTreeMap>(
+            *conn, "/", 0,
+            {std::string(MeasurementSetCommon::interface)});
+
+        if (measEc)
+        {
+            LOG_WARNING("GetSubTree for MeasurementSet failed: {} — "
+                        "skipping measurements, continuing attestation",
+                        measEc.message());
+        }
+        else if (subtree.empty())
+        {
+            LOG_WARNING("No MeasurementSet responders found — "
+                        "skipping measurements, continuing attestation");
+        }
+        else
+        {
+            // ── Step 2: Call SPDMGetSignedMeasurements on each responder ──────
+            const std::vector<size_t> indices{}; // empty → all measurements
+            const std::string nonce{};
+            const size_t slotId{0};
+
+            for (const auto& [objPath, serviceMap] : subtree)
+            {
+                if (serviceMap.empty())
+                {
+                    LOG_WARNING("No owning service for {} — skipping", objPath);
+                    continue;
+                }
+                const std::string& service = serviceMap.begin()->first;
+
+                LOG_INFO("Calling SPDMGetSignedMeasurements on {} (svc: {})",
+                         objPath, service);
+
+                // All 7 return values per the updated MeasurementSet interface:
+                //   Certificate, HashingAlgorithm, PublicKey,
+                //   SignedMeasurements, SigningAlgorithm, Version, OpaqueData
+                auto [callEc, certPath, hashAlgo, certPem, signedMeas,
+                      signAlgo, version, opaqueData] =
+                    co_await awaitable_dbus_method_call<
+                        sdbusplus::message::object_path,
+                        std::string, std::string, std::string,
+                        std::string, std::string,
+                        std::vector<uint8_t>>(
+                        *conn, service, objPath,
+                        MeasurementSetCommon::interface,
+                        MeasurementSetCommon::method_names::
+                            spdm_get_signed_measurements,
+                        indices, nonce, slotId);
+
+                if (callEc)
+                {
+                    LOG_ERROR("SPDMGetSignedMeasurements failed for {}: {}",
+                              objPath, callEc.message());
+                    continue;
+                }
+
+                LOG_INFO("Measurements received from {} — version: {}, "
+                         "hashAlgo: {}, signAlgo: {}",
+                         objPath, version, hashAlgo, signAlgo);
+
+                // Trace: signed measurements (base64) size and raw content
+                LOG_DEBUG("SignedMeasurements size: {} bytes, data: {}",
+                          signedMeas.size(), signedMeas);
+
+                // Trace: opaque data size and hex dump
+                LOG_DEBUG("OpaqueData size: {} bytes", opaqueData.size());
+                if (!opaqueData.empty())
+                {
+                    std::string hexDump;
+                    hexDump.reserve(opaqueData.size() * 3);
+                    for (const auto byte : opaqueData)
+                    {
+                        hexDump += std::format("{:02x} ", byte);
+                    }
+                    LOG_DEBUG("OpaqueData: {}", hexDump);
+                }
+            }
+        }
+
+        // ── Step 3: proceed with existing attestation flow ───────────────────
         auto device = std::format(ATTESTATION_DEVICE_PATH, deviceName);
         auto [ec, msg] =
             co_await awaitable_dbus_method_call<sdbusplus::message_t>(
