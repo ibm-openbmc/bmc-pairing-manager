@@ -82,7 +82,7 @@ struct BmcPairingManagerObject : Ifaces
     /** @brief Implementation for PairPeer — starts pairing on the peer BMC.
      *  Returns an object path implementing xyz.openbmc_project.Common.Progress.
      */
-    sdbusplus::message::object_path pairPeer(std::string bmcId) override
+    sdbuscompat::object_path pairPeer(std::string bmcId) override
     {
         if (bmcId == "self")
         {
